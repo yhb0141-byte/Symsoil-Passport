@@ -25,6 +25,7 @@ trap 'rm -f -- "${core_binary}" "${outbox_binary}" "${delivery_binary}"' EXIT
     "${root}/overlay/tests/test_passport_delivery.c" \
     "${root}/overlay/main/passport_delivery.c" \
     "${root}/overlay/main/passport_outbox.c" \
+    "${root}/overlay/main/passport_protocol.c" \
     "${root}/overlay/main/passport_transport.c" \
     -o "${delivery_binary}"
 "${delivery_binary}"

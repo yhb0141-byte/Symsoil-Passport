@@ -3,6 +3,30 @@
 
 #include "passport_delivery.h"
 
+static const char MEMBER_SIGNATURE_TEXT[] =
+    "iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg";
+static const uint8_t SERVICE_PUBLIC_X[PASSPORT_P256_COORD_SIZE] = { 0x11 };
+static const uint8_t SERVICE_PUBLIC_Y[PASSPORT_P256_COORD_SIZE] = { 0x22 };
+static const uint8_t SERVICE_SIGNATURE[PASSPORT_P256_P1363_SIZE] = { 0x33 };
+static char expected_service_message[PASSPORT_DELIVERY_RESULT_FRAME_MAX];
+static size_t expected_service_message_length;
+
+// Host-only trust-boundary double. ESP-IDF links the mbedTLS implementation;
+// this double accepts only the exact canonical bytes prepared by the test.
+bool passport_p256_verify_p1363(
+    const uint8_t public_x[PASSPORT_P256_COORD_SIZE],
+    const uint8_t public_y[PASSPORT_P256_COORD_SIZE],
+    const uint8_t *message,
+    size_t message_length,
+    const uint8_t signature[PASSPORT_P256_P1363_SIZE])
+{
+    return memcmp(public_x, SERVICE_PUBLIC_X, sizeof(SERVICE_PUBLIC_X)) == 0 &&
+        memcmp(public_y, SERVICE_PUBLIC_Y, sizeof(SERVICE_PUBLIC_Y)) == 0 &&
+        memcmp(signature, SERVICE_SIGNATURE, sizeof(SERVICE_SIGNATURE)) == 0 &&
+        message_length == expected_service_message_length &&
+        memcmp(message, expected_service_message, message_length) == 0;
+}
+
 typedef struct {
     uint8_t data[PASSPORT_OUTBOX_SLOT_COUNT][PASSPORT_OUTBOX_RECORD_MAX];
     size_t length[PASSPORT_OUTBOX_SLOT_COUNT];
@@ -48,6 +72,43 @@ static passport_outbox_store_t store_for(memory_store_t *memory)
     };
 }
 
+static void member_signature(uint8_t output[PASSPORT_OUTBOX_SIGNATURE_SIZE])
+{
+    size_t length = 0;
+    assert(passport_base64url_decode(MEMBER_SIGNATURE_TEXT, output,
+        PASSPORT_OUTBOX_SIGNATURE_SIZE, &length) == PASSPORT_PROTOCOL_OK);
+    assert(length == PASSPORT_OUTBOX_SIGNATURE_SIZE);
+}
+
+static passport_delivery_result_frame_t result_frame(
+    uint32_t transfer_id, const char *outcome)
+{
+    return (passport_delivery_result_frame_t) {
+        .community_id = "synthetic-community",
+        .outcome = outcome,
+        .reply_signature = MEMBER_SIGNATURE_TEXT,
+        .request_id = "synthetic-request",
+        .result_id = "synthetic-result",
+        .transfer_id = transfer_id,
+    };
+}
+
+static void trust_exact_result(const passport_delivery_result_frame_t *result)
+{
+    assert(passport_delivery_result_frame_json(result, expected_service_message,
+        sizeof(expected_service_message), &expected_service_message_length) ==
+        PASSPORT_PROTOCOL_OK);
+}
+
+static passport_delivery_result_t finalize_signed(
+    passport_delivery_t *delivery,
+    const passport_delivery_result_frame_t *result)
+{
+    return passport_delivery_finalize_signed(delivery, result,
+        "synthetic-community", SERVICE_PUBLIC_X, SERVICE_PUBLIC_Y,
+        SERVICE_SIGNATURE);
+}
+
 static void finish_packets(passport_delivery_t *delivery)
 {
     uint8_t packet[PASSPORT_TRANSPORT_PACKET_MAX];
@@ -75,7 +136,7 @@ static void test_reboot_and_final_result(void)
     const char frame[] =
         "{\"counter\":8,\"protocol\":\"symsoil-passport/1\",\"requestId\":\"synthetic-delivery\"}";
     uint8_t signature[PASSPORT_OUTBOX_SIGNATURE_SIZE];
-    memset(signature, 0x5a, sizeof(signature));
+    member_signature(signature);
     const uint32_t transfer_id = UINT32_C(0x10293847);
     assert(passport_delivery_queue(&delivery, frame, strlen(frame), signature,
                                    transfer_id) == PASSPORT_DELIVERY_OK);
@@ -118,21 +179,50 @@ static void test_reboot_and_final_result(void)
            PASSPORT_DELIVERY_WAITING_ACK);
     assert(after_length == before_length && memcmp(after, before, before_length) == 0);
 
-    uint8_t wrong_signature[PASSPORT_OUTBOX_SIGNATURE_SIZE];
-    memcpy(wrong_signature, signature, sizeof(signature));
-    wrong_signature[0] ^= 1;
-    assert(passport_delivery_finalize(&rebooted, transfer_id + 1, signature,
-                                      PASSPORT_DELIVERY_ACCEPTED) ==
-           PASSPORT_DELIVERY_MISMATCH);
-    assert(passport_delivery_finalize(&rebooted, transfer_id, wrong_signature,
-                                      PASSPORT_DELIVERY_ACCEPTED) ==
-           PASSPORT_DELIVERY_MISMATCH);
+    passport_delivery_result_frame_t result = result_frame(transfer_id, "accepted");
+    trust_exact_result(&result);
+    result.transfer_id++;
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_MISMATCH);
+    result = result_frame(transfer_id, "accepted");
+    result.reply_signature =
+        "cevsLz5SZq54cBmqKulrJXZlNlHDtUDaG0Zfv4DSHZdFYXuxxixV6Pf2HE3yrVCGEc07buswi7kzSjLD9IxnUA";
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_MISMATCH);
+    result = result_frame(transfer_id, "accepted");
+    result.reply_signature = "short";
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_BAD_DATA);
+    result = result_frame(transfer_id, "accepted");
+    result.community_id = "other-community";
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_MISMATCH);
+    result = result_frame(transfer_id, "accepted");
+    result.request_id = "changed-request";
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+    result = result_frame(transfer_id, "accepted");
+    result.result_id = "changed-result";
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+    result = result_frame(transfer_id, "rejected");
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+    result = result_frame(transfer_id, "pending");
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_BAD_DATA);
+    result = result_frame(transfer_id, "accepted");
+    uint8_t wrong_service_signature[PASSPORT_P256_P1363_SIZE];
+    memcpy(wrong_service_signature, SERVICE_SIGNATURE, sizeof(wrong_service_signature));
+    wrong_service_signature[0] ^= 1;
+    assert(passport_delivery_finalize_signed(&rebooted, &result,
+        "synthetic-community", SERVICE_PUBLIC_X, SERVICE_PUBLIC_Y,
+        wrong_service_signature) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+    uint8_t wrong_public_x[PASSPORT_P256_COORD_SIZE];
+    memcpy(wrong_public_x, SERVICE_PUBLIC_X, sizeof(wrong_public_x));
+    wrong_public_x[0] ^= 1;
+    assert(passport_delivery_finalize_signed(&rebooted, &result,
+        "synthetic-community", wrong_public_x, SERVICE_PUBLIC_Y,
+        SERVICE_SIGNATURE) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
     assert(passport_outbox_load(&store, &still_pending) == PASSPORT_OUTBOX_READY);
 
     // A matching final rejection is authoritative too: it closes this exact
     // reply but never converts it into acceptance.
-    assert(passport_delivery_finalize(&rebooted, transfer_id, signature,
-                                      PASSPORT_DELIVERY_REJECTED) == PASSPORT_DELIVERY_OK);
+    result = result_frame(transfer_id, "rejected");
+    trust_exact_result(&result);
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_OK);
     assert(rebooted.state == PASSPORT_DELIVERY_IDLE);
     assert(passport_outbox_load(&store, &still_pending) == PASSPORT_OUTBOX_EMPTY);
 }
@@ -147,8 +237,9 @@ static void test_busy_exhaustion_and_recovery(void)
     const char second[] = "{\"counter\":2}";
     uint8_t signature1[PASSPORT_OUTBOX_SIGNATURE_SIZE];
     uint8_t signature2[PASSPORT_OUTBOX_SIGNATURE_SIZE];
-    memset(signature1, 1, sizeof(signature1));
-    memset(signature2, 2, sizeof(signature2));
+    member_signature(signature1);
+    memcpy(signature2, signature1, sizeof(signature2));
+    signature2[0] ^= 1;
     assert(passport_delivery_queue(&delivery, first, strlen(first), signature1, 11) ==
            PASSPORT_DELIVERY_OK);
     assert(passport_delivery_queue(&delivery, second, strlen(second), signature2, 12) ==
@@ -166,8 +257,9 @@ static void test_busy_exhaustion_and_recovery(void)
 
     // A server may have committed before the device rebooted. A matching
     // authenticated final result can therefore clear before another send.
-    assert(passport_delivery_finalize(&delivery, 11, signature1,
-                                      PASSPORT_DELIVERY_ACCEPTED) == PASSPORT_DELIVERY_OK);
+    passport_delivery_result_frame_t result = result_frame(11, "accepted");
+    trust_exact_result(&result);
+    assert(finalize_signed(&delivery, &result) == PASSPORT_DELIVERY_OK);
     assert(passport_delivery_queue(&delivery, second, strlen(second), signature2, 12) ==
            PASSPORT_DELIVERY_OK);
 }
@@ -176,7 +268,7 @@ static void test_storage_faults(void)
 {
     const char frame[] = "{\"counter\":3}";
     uint8_t signature[PASSPORT_OUTBOX_SIGNATURE_SIZE];
-    memset(signature, 3, sizeof(signature));
+    member_signature(signature);
 
     memory_store_t primary_failure = { .fail_on_write = 1 };
     passport_outbox_store_t primary_store = store_for(&primary_failure);
@@ -215,17 +307,15 @@ static void test_storage_faults(void)
            PASSPORT_DELIVERY_OK);
     clear_failure.writes = 0;
     clear_failure.fail_on_write = 1;
-    assert(passport_delivery_finalize(&delivery, 33, signature,
-                                      PASSPORT_DELIVERY_ACCEPTED) ==
-           PASSPORT_DELIVERY_IO_ERROR);
+    passport_delivery_result_frame_t result = result_frame(33, "accepted");
+    trust_exact_result(&result);
+    assert(finalize_signed(&delivery, &result) == PASSPORT_DELIVERY_IO_ERROR);
     passport_outbox_message_t pending;
     assert(passport_outbox_load(&clear_store, &pending) == PASSPORT_OUTBOX_READY);
     assert(pending.transfer_id == 33);
     clear_failure.writes = 0;
     clear_failure.fail_on_write = 0;
-    assert(passport_delivery_finalize(&delivery, 33, signature,
-                                      PASSPORT_DELIVERY_ACCEPTED) ==
-           PASSPORT_DELIVERY_OK);
+    assert(finalize_signed(&delivery, &result) == PASSPORT_DELIVERY_OK);
     assert(passport_outbox_load(&clear_store, &pending) == PASSPORT_OUTBOX_EMPTY);
 }
 

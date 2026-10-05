@@ -143,23 +143,47 @@ passport_delivery_result_t passport_delivery_retry(passport_delivery_t *delivery
     return prepare(delivery);
 }
 
-passport_delivery_result_t passport_delivery_finalize(
+passport_delivery_result_t passport_delivery_finalize_signed(
     passport_delivery_t *delivery,
-    uint32_t transfer_id,
-    const uint8_t signature[PASSPORT_OUTBOX_SIGNATURE_SIZE],
-    passport_delivery_final_t final_result)
+    const passport_delivery_result_frame_t *result,
+    const char *trusted_community_id,
+    const uint8_t service_public_x[PASSPORT_P256_COORD_SIZE],
+    const uint8_t service_public_y[PASSPORT_P256_COORD_SIZE],
+    const uint8_t service_signature[PASSPORT_P256_P1363_SIZE])
 {
-    if (!delivery || !signature ||
-        (final_result != PASSPORT_DELIVERY_ACCEPTED &&
-         final_result != PASSPORT_DELIVERY_REJECTED)) {
+    if (!delivery || !result || !trusted_community_id || !service_public_x ||
+        !service_public_y || !service_signature) {
         return PASSPORT_DELIVERY_BAD_ARGUMENT;
     }
     if (delivery->state == PASSPORT_DELIVERY_IDLE) return PASSPORT_DELIVERY_EMPTY;
-    if (transfer_id != delivery->pending.transfer_id ||
-        memcmp(signature, delivery->pending.signature,
+    if (!result->community_id || strcmp(result->community_id, trusted_community_id) != 0 ||
+        result->transfer_id != delivery->pending.transfer_id) {
+        return PASSPORT_DELIVERY_MISMATCH;
+    }
+
+    uint8_t reply_signature[PASSPORT_OUTBOX_SIGNATURE_SIZE];
+    size_t reply_signature_length = 0;
+    if (passport_base64url_decode(result->reply_signature, reply_signature,
+            sizeof(reply_signature), &reply_signature_length) != PASSPORT_PROTOCOL_OK ||
+        reply_signature_length != sizeof(reply_signature)) {
+        return PASSPORT_DELIVERY_BAD_DATA;
+    }
+    if (memcmp(reply_signature, delivery->pending.signature,
                PASSPORT_OUTBOX_SIGNATURE_SIZE) != 0) {
         return PASSPORT_DELIVERY_MISMATCH;
     }
+
+    char canonical[PASSPORT_DELIVERY_RESULT_FRAME_MAX];
+    size_t canonical_length = 0;
+    if (passport_delivery_result_frame_json(result, canonical, sizeof(canonical),
+            &canonical_length) != PASSPORT_PROTOCOL_OK) {
+        return PASSPORT_DELIVERY_BAD_DATA;
+    }
+    if (!passport_p256_verify_p1363(service_public_x, service_public_y,
+            (const uint8_t *)canonical, canonical_length, service_signature)) {
+        return PASSPORT_DELIVERY_UNTRUSTED_RESULT;
+    }
+
     const passport_outbox_result_t cleared = passport_outbox_clear(&delivery->store);
     if (cleared != PASSPORT_OUTBOX_EMPTY) {
         delivery->state = PASSPORT_DELIVERY_STORAGE_ERROR;
