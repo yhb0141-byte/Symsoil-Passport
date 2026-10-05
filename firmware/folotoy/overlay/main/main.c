@@ -1,4 +1,5 @@
 #include "passport_core.h"
+#include "passport_vectors.h"
 
 #include "bsp_battery.h"
 #include "bsp_button.h"
@@ -234,6 +235,12 @@ static void on_key(bsp_btn_t button, bsp_btn_ev_t event, void *user)
 void app_main(void)
 {
     ESP_LOGI(TAG, "starting Symsoil hardware acceptance build");
+    const int protocol_selftest = passport_protocol_vectors_selftest();
+    if (protocol_selftest != 0) {
+        ESP_LOGE(TAG, "synthetic protocol self-test failed at stage %d", protocol_selftest);
+        return;
+    }
+    ESP_LOGI(TAG, "four synthetic canonical/P-256 protocol vectors passed");
     passport_model_init(&s_model);
     s_fixture = (passport_request_t) {
         .kind = PASSPORT_KIND_CONTRIBUTION,

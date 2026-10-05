@@ -24,6 +24,12 @@ install -m 0644 "${root}/overlay/main/CMakeLists.txt" "${target}/main/CMakeLists
 install -m 0644 "${root}/overlay/main/main.c" "${target}/main/main.c"
 install -m 0644 "${root}/overlay/main/passport_core.c" "${target}/main/passport_core.c"
 install -m 0644 "${root}/overlay/main/passport_core.h" "${target}/main/passport_core.h"
+install -m 0644 "${root}/overlay/main/passport_protocol.c" "${target}/main/passport_protocol.c"
+install -m 0644 "${root}/overlay/main/passport_protocol.h" "${target}/main/passport_protocol.h"
+install -m 0644 "${root}/overlay/main/passport_crypto.h" "${target}/main/passport_crypto.h"
+install -m 0644 "${root}/overlay/main/passport_crypto_mbedtls.c" "${target}/main/passport_crypto_mbedtls.c"
+install -m 0644 "${root}/overlay/main/passport_vectors.c" "${target}/main/passport_vectors.c"
+install -m 0644 "${root}/overlay/main/passport_vectors.h" "${target}/main/passport_vectors.h"
 install -m 0644 "${root}/overlay/tests/test_passport_core.c" "${target}/tests/test_passport_core.c"
 
 echo "Applied Symsoil Passport hardware acceptance overlay to ${target}."

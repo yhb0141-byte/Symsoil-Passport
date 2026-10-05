@@ -53,7 +53,7 @@ npm run demo
 
 「用 NFC 读卡」「用 NFC 写入账户入口」已接入 Web NFC；浏览器会在支持的安全环境中请求 NFC 权限。不支持的浏览器会禁用这两个按钮，模拟碰卡仍可体验完整流程。真实 NFC 收发尚未经过实物测试。
 
-浏览器仍是完整业务流程的确认设备。仓库新增了锁定 FoloToy 官方提交的 ESP32-C3 **硬件验收固件覆盖层**：屏幕显示六类独立事项语义，只有最终复核页连续长按 OK 两秒才产生合成验收事件；短按、沉默、错误按键、到期或改版均不会提交。它已通过 ESP-IDF 5.5.3 交叉编译，但尚未刷入真实工牌，也没有接入密钥、BLE 或账本。使用工牌现有的被动 NTAG213 时，读写仍需要外部读卡端；本版没有把余额写入标签来充当离线钱包。
+浏览器仍是完整业务流程的确认设备。仓库新增了锁定 FoloToy 官方提交的 ESP32-C3 **硬件验收固件覆盖层**：屏幕显示六类独立事项语义，只有最终复核页连续长按 OK 两秒才产生合成验收事件；短按、沉默、错误按键、到期或改版均不会提交。覆盖层还会按网页端相同的 canonical 字节编码四组公开向量，并在设备启动 UI 前核对 SHA-256、P-256/P1363 签名和计数器防重放。它已通过 ESP-IDF 5.5.3 交叉编译，但尚未刷入真实工牌，也没有接入私钥、签名生成、BLE 或账本。使用工牌现有的被动 NTAG213 时，读写仍需要外部读卡端；本版没有把余额写入标签来充当离线钱包。
 
 见 [FoloToy 硬件验收固件](firmware/folotoy/README.md)、[硬件接入约定](firmware/README.md)、[API 与协议](docs/api.md) 和 [Web NFC 官方说明](https://developer.chrome.com/docs/capabilities/nfc)。
 
@@ -112,7 +112,7 @@ npm run verify-export -- /path/to/symsoil-passport-M-017.json
 
 核验的是提供的公钥下的回复签名、内容绑定与流水一致性；不证明持有人身份、签发方可信、导出完整性或当前撤销状态。
 
-真实工牌移植可先运行 `npm run test:protocol`。固定的合成协议材料及独立 Python 验证说明见 [协议向量](firmware/protocol-vectors/README.md)。它们验证编码和签名兼容性，不是已完成的工牌固件或实物验证。
+真实工牌移植可先运行 `npm run test:protocol` 和 `npm run test:firmware-host`。固定的合成协议材料及独立 Python 验证说明见 [协议向量](firmware/protocol-vectors/README.md)。FoloToy 覆盖层已内置同一批材料用于启动自检；这些证据验证源码兼容性，不等同于已在实物执行，也不代表私钥签名链已经完成。
 
 ## 目录
 

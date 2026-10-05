@@ -2,6 +2,8 @@
 #include <string.h>
 
 #include "passport_core.h"
+#include "passport_protocol.h"
+#include "passport_vectors.h"
 
 static passport_request_t request(passport_kind_t kind, uint32_t version, uint64_t expiry)
 {
@@ -12,6 +14,51 @@ static passport_request_t request(passport_kind_t kind, uint32_t version, uint64
 
 int main(void)
 {
+    assert(passport_protocol_vectors_selftest() == 0);
+    size_t vector_count = 0;
+    assert(passport_protocol_vectors(&vector_count) != NULL);
+    assert(vector_count == 4);
+
+    uint8_t decoded[64];
+    size_t decoded_length = 0;
+    assert(passport_base64url_decode(
+        "JB-jgrJKPFCBj7pMqWBmRvHKELz9NUwPi5cWqFo33uE",
+        decoded, sizeof(decoded), &decoded_length) == PASSPORT_PROTOCOL_OK);
+    assert(decoded_length == 32);
+    assert(passport_base64url_decode("A", decoded, sizeof(decoded), &decoded_length) ==
+           PASSPORT_PROTOCOL_INVALID_FIELD);
+    assert(passport_base64url_decode("AQEBAQ", decoded, 2, &decoded_length) ==
+           PASSPORT_PROTOCOL_BUFFER_TOO_SMALL);
+
+    passport_confirmation_frame_t escaped = {
+        .community_id = "synthetic-community",
+        .counter = 1,
+        .decision = "line\n\"quote\"\\tab\t🌱",
+        .device_id = "synthetic-device",
+        .expires_at = 2,
+        .member_id = "synthetic-member",
+        .nonce = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB",
+        .request_digest = "bbed7727d04df15a802f9b59206f876d60fd17b3c63e1b0197842d898bfc18c7",
+        .request_id = "synthetic-request",
+        .request_version = 3,
+    };
+    char frame[PASSPORT_CONFIRMATION_FRAME_MAX];
+    size_t frame_length = 0;
+    assert(passport_confirmation_frame_json(&escaped, frame, sizeof(frame), &frame_length) ==
+           PASSPORT_PROTOCOL_OK);
+    assert(frame_length == strlen(frame));
+    assert(strstr(frame, "\"decision\":\"line\\n\\\"quote\\\"\\\\tab\\t🌱\"") != NULL);
+    char tiny[8];
+    assert(passport_confirmation_frame_json(&escaped, tiny, sizeof(tiny), &frame_length) ==
+           PASSPORT_PROTOCOL_BUFFER_TOO_SMALL);
+    escaped.counter = PASSPORT_JS_SAFE_INTEGER_MAX + 1;
+    assert(passport_confirmation_frame_json(&escaped, frame, sizeof(frame), &frame_length) ==
+           PASSPORT_PROTOCOL_INVALID_FIELD);
+    escaped.counter = 1;
+    escaped.community_id = "\xc0\xaf";
+    assert(passport_confirmation_frame_json(&escaped, frame, sizeof(frame), &frame_length) ==
+           PASSPORT_PROTOCOL_INVALID_UTF8);
+
     assert(strcmp(passport_decision(PASSPORT_KIND_CONTRIBUTION, 0), "receive") == 0);
     assert(strcmp(passport_decision(PASSPORT_KIND_ORDER, 0), "spend") == 0);
     assert(strcmp(passport_decision(PASSPORT_KIND_REFUND, 0), "receive_refund") == 0);
