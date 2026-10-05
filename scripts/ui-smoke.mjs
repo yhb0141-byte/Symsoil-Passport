@@ -130,6 +130,11 @@ try {
   }
   await enterMember(memberToken); assert.equal(service.balance('M-UI-02'), 0);
   const originalDevice = service.snapshot('M-UI-02').device.id;
+  await operator.waitForFunction(id => document.querySelector('#operator-members').textContent.includes(id), originalDevice);
+  await operator.locator('[data-operator-tab="exchange"]').click();
+  await operator.locator('#operator-contribution [name="title"]').fill('尚未提交的文字');
+  await operator.waitForTimeout(3200);
+  assert.equal(await operator.locator('#operator-contribution [name="title"]').inputValue(), '尚未提交的文字');
   const originalCard = service.ensureCard('M-UI-02').payload;
   await operator.locator('[data-operator-tab="exchange"]').click();
   await operator.locator('#operator-contribution [name="memberId"]').selectOption('M-UI-02');
@@ -141,14 +146,14 @@ try {
     await operator.locator('#operator-manual-scan [name="cardPayload"]').fill(originalCard);
     await operator.locator('#operator-manual-scan button').click();
     await operator.waitForFunction(() => document.querySelector('#operator-nfc-status').textContent.includes('事项已发送'));
-    await second.locator('#refresh').click();
+    await second.locator('[data-open]').first().waitFor({ state: 'visible' });
     await second.locator('[data-open]').first().click(); await confirm(0, second);
   }
   await sendAndConfirm(); assert.equal(service.balance('M-UI-02'), 30); assert.equal(snapshot().balance, 110);
   await operator.locator('#operator-order button').click();
   await operator.waitForFunction(() => document.querySelector('#scan-kind').value === 'order');
   await sendAndConfirm(); assert.equal(service.balance('M-UI-02'), 10);
-  await operator.locator('#operator-refresh').click();
+  await operator.locator('[data-deliver]').waitFor({ state: 'visible' });
   await operator.locator('[data-deliver]').click();
   await operator.waitForFunction(() => document.querySelector('#operator-notice').textContent.includes('交付已登记'));
   async function prepareContribution(points) {
@@ -190,6 +195,32 @@ try {
   assert.equal(service.balance('M-UI-02'), 22); assert.equal(service.snapshot('M-UI-02').receipts.length, 4);
   const secondExport = await fetch(base + '/api/me/export', { headers: { Authorization: 'Bearer ' + replacementToken } }).then(response => response.json());
   verifyExport(secondExport);
+  // A new inbox item arrives without a manual refresh. Routine reads preserve
+  // the exact screen node; a revision during the hold cancels, never approves.
+  const expression = service.createStatement('test-admin', { memberId: 'M-UI-02', kind: 'expression', payload: { original: '我可以协助上午', retelling: '只协助上午' } });
+  await second.locator('[data-open="' + expression.id + '"]').waitFor({ state: 'visible' });
+  await second.locator('[data-open="' + expression.id + '"]').click(); await stage('review', second);
+  await second.evaluate(() => { window.reviewNode = document.querySelector('#device-screen').firstElementChild; window.dispatchEvent(new Event('online')); });
+  await second.waitForTimeout(600);
+  assert.equal(await second.evaluate(() => window.reviewNode === document.querySelector('#device-screen').firstElementChild), true, 'sync must preserve the text being read');
+  await shortOK(second); await shortOK(second); await stage('confirm', second);
+  const beforeRevisionReceipts = service.snapshot('M-UI-02').receipts.length;
+  const box = await second.locator('[data-key="ok"]').boundingBox();
+  await second.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await second.mouse.down();
+  await second.waitForTimeout(200);
+  const revised = service.revise('test-admin', expression.id, { original: '我可以协助上午', retelling: '上午协助，需要另行安排下午' });
+  await second.evaluate(() => window.dispatchEvent(new Event('online')));
+  await second.waitForFunction(() => document.querySelector('#device-screen').textContent.includes('事项已修改'));
+  await second.waitForTimeout(2100); await second.mouse.up();
+  assert.equal(service.snapshot('M-UI-02').receipts.length, beforeRevisionReceipts);
+  await second.locator('[data-open="' + revised.id + '"]').click(); await stage('review', second);
+  // Simulate the server deadline without trusting the browser wall clock.
+  const realClock = service.clock; service.clock = () => Date.now() + 120001;
+  await second.evaluate(() => window.dispatchEvent(new Event('online')));
+  await second.waitForFunction(() => document.querySelector('#device-screen').textContent.includes('事项已过期'));
+  assert.equal(service.snapshot('M-UI-02').receipts.length, beforeRevisionReceipts); service.clock = realClock;
+  await second.locator('#refresh').click();
+
   const browserState = await second.evaluate(async () => {
     const device = await import('/device.mjs'), { canonical } = await import('/protocol.mjs');
     const keys = await Promise.all([device.deviceKey('synthetic-concurrent-device'), device.deviceKey('synthetic-concurrent-device'), device.deviceKey('synthetic-concurrent-device')]);
@@ -210,7 +241,20 @@ try {
   }
   await operator.locator('[data-operator-tab="members"]').click();
   await operator.screenshot({ path: join(artifacts, 'operator-mobile-dark.png'), fullPage: true });
-  await operator.locator('#operator-logout').click();
+  let releaseOldRead, oldReadStarted;
+  const oldReadArrived = new Promise(resolve => { oldReadStarted = resolve; });
+  await operator.route('**/api/terminal', async route => {
+    const response = await route.fetch(); oldReadStarted();
+    await new Promise(resolve => { releaseOldRead = resolve; });
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await operator.locator('#operator-refresh').click(); await oldReadArrived;
+  await operator.locator('#operator-logout').click(); releaseOldRead();
+  await operator.waitForTimeout(300);
+  assert.equal(await operator.locator('#operator-workspace').isVisible(), false);
+  assert.equal(await operator.locator('#operator-members').textContent(), '');
+  await operator.unroute('**/api/terminal');
+
   const terminalContext = await browser.newContext(), terminalPage = await terminalContext.newPage();
   await terminalPage.goto(base + '/operator.html'); await terminalPage.locator('#operator-access [name="role"]').selectOption('terminal');
   await terminalPage.locator('#operator-access [name="token"]').fill(credentials.terminal.token);
@@ -219,7 +263,7 @@ try {
   assert.equal(await terminalPage.locator('#operator-contribution').isVisible(), false);
   await terminalContext.close(); await memberContext.close();
   assert.deepEqual(errors, []); assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
-  console.log('UI flow passed: points, grants, versions, independent operator, multi-member isolation, lost-device recovery, lost-response/reload retry, atomic browser keys, export and 320px layouts.');
+  console.log('UI flow passed: points, grants, versions, independent operator, multi-member isolation, lost-device recovery, lost-response/reload retry, atomic browser keys, live inbox/operator updates, revision/expiry cancellation, late-response logout isolation, export and 320px layouts.');
   console.log(`Screenshots: ${artifacts}`);
 } finally {
   if (browser) await browser.close();

@@ -1,5 +1,6 @@
 import { DECISIONS, LABELS, canonical, confirmationFrame } from './protocol.mjs';
 import { deviceKey, signResponse, pendingResponse, clearPendingResponse } from './device.mjs';
+import { SessionRequests, liveSync, closedReason } from './live-sync.mjs';
 import { hasWebNFC, writeCard, scanCard } from './nfc.mjs';
 
 const $ = selector => document.querySelector(selector);
@@ -9,25 +10,25 @@ const signed = value => (value > 0 ? '+' : '') + value;
 const kindLabel = { contribution: '贡献积分', order: '积分兑换', refund: '原单退回', borrow: '工具借用', expression: '转述许可', grant: '有限授权' };
 let tokens = {}, data = null, terminalData = null, storageId = '', selected = 0, stage = 'home', current = null;
 let decision = null, result = null, prepared = null, hold = null, holdTimer = null, sending = false, epoch = 0;
-let pending = null;
+let pending = null, refreshVersion = 0, clockTime = Date.now(), clockMark = performance.now();
+const session = new SessionRequests();
+const now = () => clockTime + performance.now() - clockMark;
+const synchronization = liveSync({ refresh: () => refresh(true), enabled: () => Boolean(tokens.member && data && !sending && !pending), status: message => { $('#sync-status').textContent = message; } });
 const home = ['社区积分', '借用电钻', '核对我的转述', '授权小壤行动', '查看我的回执'];
 
 async function api(path, { role = 'member', method = 'GET', body } = {}) {
   const token = tokens[role] || (role === 'terminal' ? tokens.admin : null);
-  const response = await fetch(path, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const value = await response.json();
-  if (!response.ok) { const error = new Error(value.error?.message || '操作未完成'); error.code = value.error?.code; error.status = response.status; throw error; }
-  return value;
+  return session.json(path, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
 function notify(message, error = false) { const notice = $('#notice'); notice.hidden = false; notice.textContent = message; notice.classList.toggle('error', error); notice.setAttribute('role', error ? 'alert' : 'status'); }
-const safely = fn => async event => { try { await fn(event); } catch (error) { notify(error.message, true); } };
+const safely = fn => async event => { try { await fn(event); } catch (error) { if (error.name !== 'AbortError') notify(error.message, true); } };
 function tab(name) {
   if (sending) return;
   cancelHold();
   for (const button of document.querySelectorAll('[data-tab]')) { const active = button.dataset.tab === name; if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); }
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== name + '-panel';
 }
-const activeRequests = () => data.requests.filter(r => !r.supersededBy && r.state === 'pending' && r.expiresAt > Date.now());
+const activeRequests = () => data.requests.filter(r => !r.supersededBy && r.state === 'pending' && r.expiresAt > now());
 function screenList(labels) { return '<ul class="screen-list">' + labels.map((label, i) => '<li class="' + (i === selected ? 'selected' : '') + '">' + escape(label) + '</li>').join('') + '</ul>'; }
 function screenFields(fields) { return '<dl class="screen-fields">' + fields.map(([label, value]) => '<div><dt>' + escape(label) + '</dt><dd>' + escape(value) + '</dd></div>').join('') + '</dl>'; }
 function requestBody(req) {
@@ -51,9 +52,9 @@ function renderScreen() {
   else if (stage === 'confirm') content += '<h2>' + escape(LABELS[decision]) + '</h2><p class="screen-note">仅对应这份 v' + current.version + ' 内容</p>' + requestBody(current) + '<p class="screen-hint">' + (sending ? '正在核验和保存' : '长按 OK 两秒提交<br>上键返回 · 松手可取消') + '</p><div class="hold-track" aria-hidden="true"><div class="hold-fill"></div></div>';
   else if (stage === 'result') content += '<h2>' + escape(result.title) + '</h2><p>' + escape(result.detail) + '</p><p class="screen-note">' + escape(result.note || '') + '</p><p class="screen-hint">短按 OK 返回首页</p>';
   else if (stage === 'receipts') content += '<h2>我的回执</h2>' + (data.receipts.length ? '<ul class="screen-list">' + data.receipts.slice(0, 3).map(r => '<li>' + escape(LABELS[r.decision]) + '<br>' + escape(kindLabel[r.kind]) + ' · v' + r.version + (r.superseded_by ? ' · 旧版本' : '') + '</li>').join('') + '</ul>' : '<p class="screen-note">暂没有明确回复记录</p>') + '<p class="screen-hint">短按 OK 返回首页</p>';
-  screen.innerHTML = content;
+  if (screen.innerHTML !== content) screen.innerHTML = content;
 }
-function render() {
+function render({ keepScreen = false } = {}) {
   if (!data) return;
   $('#greeting').textContent = data.member.name + '，这是你的社区入口。';
   const pending = activeRequests(); $('#pending-count').textContent = pending.length + ' 条';
@@ -65,8 +66,8 @@ function render() {
   $('#receipt-list').innerHTML = data.receipts.length ? data.receipts.map(r => '<article class="record"><h3>' + escape(LABELS[r.decision]) + '</h3><p>' + escape(kindLabel[r.kind]) + ' · v' + r.version + (r.superseded_by ? ' · 对应旧版本' : '') + ' · ' + date(r.created_at) + '</p><p>' + escape(JSON.parse(r.payload).title) + '</p><p>回执 ' + escape(r.id) + '</p></article>').join('') : '<p class="empty">打开事项和查看积分都不会产生批准回执。</p>';
   $('#roster').textContent = data.asset?.value || '尚未设置';
   $('#grants-list').innerHTML = data.grants.length ? data.grants.map(g => {
-    const active = !g.revoked && g.used < g.max_uses && g.expires_at > Date.now();
-    const status = g.revoked ? '已撤销' : g.expires_at <= Date.now() ? '已过期' : g.used >= g.max_uses ? '已使用' : '有效';
+    const active = !g.revoked && g.used < g.max_uses && g.expires_at > now();
+    const status = g.revoked ? '已撤销' : g.expires_at <= now() ? '已过期' : g.used >= g.max_uses ? '已使用' : '有效';
     return '<article class="record"><h3>小壤 · 菜园排班 · ' + status + '</h3><p>' + escape(g.action.value) + '</p><p>最多1次 · ' + date(g.expires_at) + ' 到期 · 不外发 不转授权</p><div class="record-actions">' + (active && tokens.agent ? '<button class="secondary" data-execute="' + escape(g.id) + '">让小壤执行这次更新</button>' : '') + (!g.revoked && !g.used ? '<button class="quiet" data-revoke="' + escape(g.id) + '">撤销授权</button>' : '') + '</div></article>';
   }).join('') : '<p class="empty">暂没有授权。看清行动内容并明确批准后，这里才会出现授权签证。</p>';
   for (const button of $('#grants-list').querySelectorAll('[data-revoke]')) button.addEventListener('click', safely(async () => { await api('/api/grants/' + button.dataset.revoke + '/revoke', { method: 'POST', body: {} }); await refresh(); notify('授权已撤销'); }));
@@ -74,9 +75,11 @@ function render() {
   const isOperator = Boolean(tokens.admin || tokens.terminal); $('#operator-required').hidden = isOperator; $('#operator-tools').hidden = !isOperator;
   $('#contribution-form').hidden = !tokens.admin; $('#refund').hidden = !tokens.admin;
   for (const id of ['prepare-borrow', 'prepare-expression', 'revise-expression', 'prepare-grant']) $('#' + id).disabled = !tokens.admin;
-  $('#catalog-select').innerHTML = data.catalog.map(item => '<option value="' + escape(item.id) + '">' + escape(item.name) + ' · ' + item.cost + ' 积分</option>').join('');
+  const previousItem = $('#catalog-select').value;
+  if (document.activeElement !== $('#catalog-select')) $('#catalog-select').innerHTML = data.catalog.map(item => '<option value="' + escape(item.id) + '">' + escape(item.name) + ' · ' + item.cost + ' 积分</option>').join('');
+  if ([...$('#catalog-select').options].some(option => option.value === previousItem)) $('#catalog-select').value = previousItem;
   $('#real-tap').disabled = !hasWebNFC(); $('#write-card').disabled = !hasWebNFC();
-  renderFulfillment(); renderScreen();
+  renderFulfillment(); if (!keepScreen) renderScreen();
   renderPending();
 }
 function renderPending() {
@@ -87,12 +90,13 @@ function renderPending() {
 }
 async function syncPending() {
   if (!storageId || !data) return;
-  pending = await pendingResponse(storageId);
+  const generation = session.generation, owner = storageId;
+  const saved = await pendingResponse(owner); session.assert(generation); pending = saved;
   if (pending?.status === 'ready') {
     const receipt = data.receipts.find(receipt => receipt.request_id === pending.request.id);
     const expected = canonical(confirmationFrame(pending.request, pending.reply.deviceId, pending.reply.decision, pending.reply.counter));
     if (receipt?.frame === expected) {
-      await clearPendingResponse(storageId, pending.claimId); pending = null;
+      await clearPendingResponse(owner, pending.claimId); session.assert(generation); pending = null;
       notify('上次的明确回复已保存在账本中，没有再次记账');
     }
   }
@@ -107,31 +111,50 @@ function renderFulfillment() {
   }).join('') : '<p class="empty">扣分成功后，才可登记对应兑换的交付结果。</p>';
   for (const button of $('#fulfillment-list').querySelectorAll('[data-fulfill]')) button.addEventListener('click', safely(async () => { await api('/api/orders/' + button.dataset.fulfill + '/fulfill', { role: 'terminal', method: 'POST', body: {} }); await refresh(); notify('物品交付已登记'); }));
 }
-async function refresh() {
-  if (!tokens.member) return;
-  const snapshot = await api('/api/me'); data = snapshot;
-  if (tokens.admin || tokens.terminal) terminalData = await api('/api/terminal', { role: 'terminal' });
-  if (current) { const latest = snapshot.requests.find(r => r.id === current.id); if (latest?.supersededBy && !sending) { cancelHold(); stage = 'home'; current = null; notify('事项已修改，旧版本需要重新征询'); } }
-  await syncPending();
-  render();
+function invalidateCurrent() {
+  if (!current || sending || !['review', 'choose', 'confirm'].includes(stage)) return false;
+  const reason = closedReason(current, data.requests.find(request => request.id === current.id), now());
+  if (!reason) return false;
+  cancelHold(); epoch++; current = null; selected = 0;
+  showResult('请重新查看事项', reason, '没有代替你提交新的回复'); notify(reason, true); return true;
 }
+async function refresh(background = false) {
+  if (!tokens.member) return;
+  const version = ++refreshVersion, generation = session.generation;
+  const snapshot = await api('/api/me');
+  const nextTerminal = tokens.admin || tokens.terminal ? await api('/api/terminal', { role: 'terminal' }) : null;
+  session.assert(generation); if (version !== refreshVersion) return;
+  data = snapshot; terminalData = nextTerminal;
+  clockTime = snapshot.serverTime; clockMark = performance.now();
+  const invalidated = invalidateCurrent();
+  await syncPending(); session.assert(generation); if (version !== refreshVersion) return;
+  render({ keepScreen: !invalidated && Boolean(hold || ['review', 'choose', 'confirm'].includes(stage)) });
+  if (!background) $('#sync-status').textContent = '事项自动同步中';
+}
+setInterval(() => {
+  if (!data || document.hidden || sending) return;
+  if (invalidateCurrent()) render({ keepScreen: true });
+}, 250);
 async function login(nextTokens) {
+  synchronization.stop(); session.invalidate(); refreshVersion++;
+  const generation = session.generation;
   tokens = nextTokens; data = await api('/api/me'); storageId = data.communityId + '/' + data.member.id;
-  let key = await deviceKey(storageId);
+  let key = await deviceKey(storageId); session.assert(generation);
   try { await api('/api/devices', { method: 'POST', body: { publicKey: key.publicKey } }); }
   catch (error) {
     if (error.code !== 'DEVICE_INACTIVE' || data.device) throw error;
-    key = await deviceKey(storageId, true);
+    key = await deviceKey(storageId, true); session.assert(generation);
     await api('/api/devices', { method: 'POST', body: { publicKey: key.publicKey } });
   }
   $('#login').hidden = true; $('#workspace').hidden = false; $('#logout').hidden = false;
-  stage = 'home'; selected = 0; current = null; await refresh();
+  stage = 'home'; selected = 0; current = null; await refresh(); synchronization.start();
 }
 async function openRequest(id) {
   if (sending) return; cancelHold();
   if (pending) throw new Error('请先核对上一笔已签名回复的结果，再打开新的事项');
-  current = await api('/api/requests/' + id);
-  if (current.supersededBy || current.state !== 'pending' || current.expiresAt <= Date.now()) throw new Error('此事项已关闭、改版或过期，请刷新');
+  const request = await api('/api/requests/' + id);
+  current = request;
+  if (current.supersededBy || current.state !== 'pending' || current.expiresAt <= now()) throw new Error('此事项已关闭、改版或过期，请刷新');
   await api('/api/requests/' + id + '/view', { method: 'POST', body: {} });
   stage = 'review'; selected = 0; epoch++; tab('card'); renderScreen();
 }
@@ -161,7 +184,7 @@ async function submit() {
   sending = true; renderScreen(); const req = current;
   try {
     const latest = await api('/api/requests/' + req.id);
-    if (latest.supersededBy || latest.digest !== req.digest || latest.expiresAt <= Date.now()) throw new Error('事项已修改或过期，请刷新后重新确认');
+    if (closedReason(req, latest, now())) throw new Error('事项已修改或过期，请刷新后重新确认');
     await signResponse(storageId, data.device, req, decision);
     pending = await pendingResponse(storageId);
     await transmitPending();
@@ -202,6 +225,7 @@ $('#retry-response').addEventListener('click', safely(async () => {
 }));
 function startHold() {
   if (hold || sending) return;
+  if (invalidateCurrent()) return;
   hold = { start: performance.now(), stage, epoch, completed: false };
   if (stage === 'confirm') holdTimer = setInterval(() => {
     if (!hold || hold.completed) return;
@@ -223,7 +247,7 @@ window.addEventListener('blur', cancelHold);
 for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => tab(button.dataset.tab));
 $('#demo-login').addEventListener('click', safely(async () => login(await api('/api/demo/session', { method: 'POST', body: {} }))));
 $('#access-form').addEventListener('submit', safely(async event => { event.preventDefault(); const fields = new FormData(event.target); await login(Object.fromEntries(['member', 'admin', 'terminal', 'agent'].map(role => [role, String(fields.get(role) || '').trim()]))); }));
-$('#logout').addEventListener('click', () => { if (sending) return; cancelHold(); tokens = {}; data = null; terminalData = null; prepared = null; current = null; pending = null; storageId = ''; epoch++; $('#login').hidden = false; $('#workspace').hidden = true; $('#logout').hidden = true; $('#notice').hidden = true; $('#access-form').reset(); for (const id of ['device-screen', 'inbox-list', 'device-info', 'ledger-table', 'grants-list', 'receipt-list', 'fulfillment-list']) $('#' + id).replaceChildren(); $('#points-balance').textContent = '0'; });
+$('#logout').addEventListener('click', () => { if (sending) return; cancelHold(); synchronization.stop(); session.invalidate(); refreshVersion++; tokens = {}; data = null; terminalData = null; prepared = null; current = null; pending = null; storageId = ''; epoch++; $('#login').hidden = false; $('#workspace').hidden = true; $('#logout').hidden = true; $('#notice').hidden = true; $('#access-form').reset(); for (const id of ['device-screen', 'inbox-list', 'device-info', 'ledger-table', 'grants-list', 'receipt-list', 'fulfillment-list']) $('#' + id).replaceChildren(); $('#points-balance').textContent = '0'; });
 $('#refresh').addEventListener('click', safely(async () => { if (!sending) { await refresh(); notify('事项与积分已更新'); } }));
 function prepare(kind, row, title) { prepared = { kind, sourceId: row.id, title }; $('#prepared-operation').textContent = title + ' · 单据 ' + row.id; $('#nfc-status').textContent = '单据已准备，等待碰卡。'; notify('已准备具体单据，碰卡后由成员回复'); }
 $('#contribution-form').addEventListener('submit', safely(async event => { event.preventDefault(); const form = new FormData(event.target); const row = await api('/api/contributions', { role: 'admin', method: 'POST', body: { id: crypto.randomUUID(), memberId: data.member.id, title: form.get('title'), points: Number(form.get('points')) } }); prepare('contribution', row, row.title + ' +' + row.points + ' 积分'); await refresh(); }));

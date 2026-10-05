@@ -319,7 +319,7 @@ export class PassportService {
   }
   snapshot(memberId) {
     const member = this.member(memberId);
-    return { communityId: COMMUNITY_ID, member, balance: this.balance(memberId), card: this.ensureCard(memberId),
+    return { serverTime: this.clock(), communityId: COMMUNITY_ID, member, balance: this.balance(memberId), card: this.ensureCard(memberId),
       device: this.one('SELECT id,counter,active FROM devices WHERE member_id=? AND active=1', memberId) || null,
       verificationKeys: this.all('SELECT id,public_key,active FROM devices WHERE member_id=?', memberId).map(d => ({ id: d.id, publicKey: JSON.parse(d.public_key), active: Boolean(d.active) })),
       requests: this.all('SELECT * FROM requests WHERE member_id=? ORDER BY created_at DESC,version DESC', memberId).map(unpackRequest),

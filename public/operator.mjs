@@ -1,23 +1,24 @@
+import { SessionRequests, liveSync } from './live-sync.mjs';
 import { hasWebNFC, scanCard } from './nfc.mjs';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 const date = value => value ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '本机初始入口';
 const roleLabel = { member: '成员', admin: '核定人', terminal: '兑换终端', agent: '小壤' };
+const session = new SessionRequests();
+let refreshVersion = 0;
+const synchronization = liveSync({ refresh, enabled: () => Boolean(tokens.admin || tokens.terminal), status: message => { $('#operator-sync-status').textContent = message; } });
 let tokens = {}, community = null, terminal = null, credentials = [], recoveryMember = null;
 
 async function api(path, { role = 'admin', method = 'GET', body } = {}) {
   const token = tokens[role] || (role === 'terminal' ? tokens.admin : null);
-  const response = await fetch(path, { method, headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error?.message || '操作未完成');
-  return value;
+  return session.json(path, { method, headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
 function notify(message, error = false) {
   const notice = $('#operator-notice'); notice.hidden = false; notice.textContent = message;
   notice.classList.toggle('error', error); notice.setAttribute('role', error ? 'alert' : 'status');
 }
-const safely = fn => async event => { try { await fn(event); } catch (error) { notify(error.message, true); } };
+const safely = fn => async event => { try { await fn(event); } catch (error) { if (error.name !== 'AbortError') notify(error.message, true); } };
 function tab(name) {
   if (name !== 'exchange' && !tokens.admin) return;
   for (const button of document.querySelectorAll('[data-operator-tab]')) {
@@ -47,11 +48,11 @@ function render() {
   for (const node of document.querySelectorAll('[data-admin-only]')) node.hidden = !tokens.admin;
   for (const select of document.querySelectorAll('[data-members]')) {
     const previous = select.value;
-    select.innerHTML = (community?.members || []).map(member => '<option value="' + escape(member.id) + '">' + escape(member.name) + ' · ' + escape(member.id) + '</option>').join('');
+    if (document.activeElement !== select) select.innerHTML = (community?.members || []).map(member => '<option value="' + escape(member.id) + '">' + escape(member.name) + ' · ' + escape(member.id) + '</option>').join('');
     if ([...select.options].some(option => option.value === previous)) select.value = previous;
   }
   const catalog = $('#operator-catalog'), previousItem = catalog.value;
-  catalog.innerHTML = terminal.catalog.map(item => '<option value="' + escape(item.id) + '">' + escape(item.name) + ' · ' + item.cost + ' 积分 · 库存 ' + item.stock + '</option>').join('');
+  if (document.activeElement !== catalog) catalog.innerHTML = terminal.catalog.map(item => '<option value="' + escape(item.id) + '">' + escape(item.name) + ' · ' + item.cost + ' 积分 · 库存 ' + item.stock + '</option>').join('');
   if ([...catalog.options].some(option => option.value === previousItem)) catalog.value = previousItem;
   $('#operator-nfc-read').disabled = !hasWebNFC();
   $('#operator-orders').innerHTML = terminal.orders.length ? terminal.orders.map(order => {
@@ -85,17 +86,20 @@ function render() {
   $('#operator-events').innerHTML = '<table><thead><tr><th>时间</th><th>操作人</th><th>事件</th><th>对象</th></tr></thead><tbody>' + community.events.map(event => '<tr><td>' + date(event.created_at) + '</td><td>' + escape(event.actor) + '</td><td>' + escape(event.type) + '</td><td>' + escape(event.target) + '</td></tr>').join('') + '</tbody></table>';
 }
 async function refresh() {
-  terminal = await api('/api/terminal', { role: 'terminal' });
-  if (tokens.admin) {
-    community = await api('/api/admin'); credentials = (await api('/api/credentials')).credentials;
-  }
-  render();
+  if (!tokens.admin && !tokens.terminal) return;
+  const version = ++refreshVersion, generation = session.generation;
+  const nextTerminal = await api('/api/terminal', { role: 'terminal' });
+  const nextCommunity = tokens.admin ? await api('/api/admin') : null;
+  const nextCredentials = tokens.admin ? (await api('/api/credentials')).credentials : [];
+  session.assert(generation); if (version !== refreshVersion) return;
+  terminal = nextTerminal; community = nextCommunity; credentials = nextCredentials; render();
 }
 async function login(nextTokens) {
+  synchronization.stop(); session.invalidate(); refreshVersion++;
   clearIssued(); tokens = nextTokens; await refresh();
   $('#operator-login').hidden = true; $('#operator-workspace').hidden = false; $('#operator-logout').hidden = false;
   $('#operator-role').textContent = tokens.admin ? '社区核定人 · 可管理成员与凭证' : '兑换终端 · 只管理自己的兑换单';
-  tab('exchange');
+  tab('exchange'); synchronization.start();
 }
 $('#operator-access').addEventListener('submit', safely(async event => {
   event.preventDefault(); const form = new FormData(event.target);
@@ -106,6 +110,7 @@ $('#operator-demo').addEventListener('click', safely(async () => {
   await login({ admin: value.admin, terminal: value.terminal });
 }));
 $('#operator-logout').addEventListener('click', () => {
+  synchronization.stop(); session.invalidate(); refreshVersion++;
   clearIssued(); tokens = {}; community = terminal = null; credentials = []; recoveryMember = null;
   $('#recovery-dialog').close(); $('#operator-login').hidden = false; $('#operator-workspace').hidden = true;
   $('#operator-logout').hidden = true; $('#operator-notice').hidden = true; $('#operator-access').reset();
