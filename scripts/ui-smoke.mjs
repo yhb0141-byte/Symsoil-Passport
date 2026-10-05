@@ -151,6 +151,30 @@ try {
   await operator.locator('#operator-refresh').click();
   await operator.locator('[data-deliver]').click();
   await operator.waitForFunction(() => document.querySelector('#operator-notice').textContent.includes('交付已登记'));
+  async function prepareContribution(points) {
+    await operator.locator('#operator-contribution [name="points"]').fill(String(points));
+    await operator.locator('#operator-contribution button').click();
+    await operator.waitForFunction(() => document.querySelector('#scan-kind').value === 'contribution');
+  }
+  await prepareContribution(5);
+  await second.route('**/api/requests/*/respond', async route => { const response = await route.fetch(); assert.equal(response.status(), 200); await route.abort('connectionfailed'); });
+  await sendAndConfirm();
+  await second.locator('#pending-response').waitFor({ state: 'visible' });
+  assert.ok((await second.locator('#device-screen').textContent()).includes('提交结果待核对'));
+  assert.equal(service.balance('M-UI-02'), 15, 'a lost response can still follow a committed credit');
+  await second.unroute('**/api/requests/*/respond');
+  await second.locator('#retry-response').click(); await second.locator('#pending-response').waitFor({ state: 'hidden' });
+  assert.equal(service.balance('M-UI-02'), 15); assert.equal(service.snapshot('M-UI-02').receipts.length, 3);
+  const beforePending = await operator.locator('#scan-source').inputValue();
+  await prepareContribution(7);
+  await operator.waitForFunction(before => document.querySelector('#scan-source').value !== before, beforePending);
+  await second.route('**/api/requests/*/respond', route => route.abort('connectionfailed'));
+  await sendAndConfirm(); await second.locator('#pending-response').waitFor({ state: 'visible' });
+  assert.equal(service.balance('M-UI-02'), 15);
+  await second.unroute('**/api/requests/*/respond');
+  await enterMember(memberToken); await second.locator('#pending-response').waitFor({ state: 'visible' });
+  await second.locator('#retry-response').click(); await second.locator('#pending-response').waitFor({ state: 'hidden' });
+  assert.equal(service.balance('M-UI-02'), 22); assert.equal(service.snapshot('M-UI-02').receipts.length, 4);
   await operator.locator('[data-operator-tab="members"]').click();
   await operator.locator('[data-recover="M-UI-02"]').click();
   await operator.locator('#recovery-dialog').waitFor({ state: 'visible' });
@@ -163,10 +187,22 @@ try {
   await enterMember(replacementToken);
   assert.notEqual(service.snapshot('M-UI-02').device.id, originalDevice);
   assert.notEqual(service.ensureCard('M-UI-02').payload, originalCard);
-  assert.equal(service.balance('M-UI-02'), 10); assert.equal(service.snapshot('M-UI-02').receipts.length, 2);
+  assert.equal(service.balance('M-UI-02'), 22); assert.equal(service.snapshot('M-UI-02').receipts.length, 4);
   const secondExport = await fetch(base + '/api/me/export', { headers: { Authorization: 'Bearer ' + replacementToken } }).then(response => response.json());
   verifyExport(secondExport);
+  const browserState = await second.evaluate(async () => {
+    const device = await import('/device.mjs'), { canonical } = await import('/protocol.mjs');
+    const keys = await Promise.all([device.deviceKey('synthetic-concurrent-device'), device.deviceKey('synthetic-concurrent-device'), device.deviceKey('synthetic-concurrent-device')]);
+    let privateKeyProtected = false;
+    try { await crypto.subtle.exportKey('jwk', keys[0].privateKey); } catch { privateKeyProtected = true; }
+    const request = { id: 'synthetic-request', communityId: 'test', memberId: 'test', digest: 'synthetic-digest', version: 1, nonce: 'test', expiresAt: Date.now() + 120000 };
+    const signatures = await Promise.allSettled([device.signResponse('synthetic-concurrent-device', { id: 'synthetic-device', counter: 0 }, request, 'receive'), device.signResponse('synthetic-concurrent-device', { id: 'synthetic-device', counter: 0 }, request, 'receive')]);
+    const pending = await device.pendingResponse('synthetic-concurrent-device');
+    return { sameKey: keys.every(key => canonical(key.publicKey) === canonical(keys[0].publicKey)), privateKeyProtected, successes: signatures.filter(result => result.status === 'fulfilled').length, counter: pending.reply.counter };
+  });
+  assert.deepEqual(browserState, { sameKey: true, privateKeyProtected: true, successes: 1, counter: 1 });
   await operator.locator('#clear-issued').click(); assert.equal(await operator.locator('#issued-secret').inputValue(), '');
+  await operator.locator('#operator-refresh').click();
   await operator.setViewportSize({ width: 320, height: 800 }); await operator.emulateMedia({ colorScheme: 'dark' });
   for (const name of ['exchange', 'members', 'audit']) {
     await operator.locator(`[data-operator-tab="${name}"]`).click();
@@ -183,7 +219,7 @@ try {
   assert.equal(await terminalPage.locator('#operator-contribution').isVisible(), false);
   await terminalContext.close(); await memberContext.close();
   assert.deepEqual(errors, []); assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
-  console.log('UI flow passed: points, grants, versions, independent operator, multi-member isolation, credential issuance, lost-device recovery, export and 320px layouts.');
+  console.log('UI flow passed: points, grants, versions, independent operator, multi-member isolation, lost-device recovery, lost-response/reload retry, atomic browser keys, export and 320px layouts.');
   console.log(`Screenshots: ${artifacts}`);
 } finally {
   if (browser) await browser.close();

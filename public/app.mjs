@@ -1,5 +1,5 @@
-import { DECISIONS, LABELS } from './protocol.mjs';
-import { deviceKey, signResponse } from './device.mjs';
+import { DECISIONS, LABELS, canonical, confirmationFrame } from './protocol.mjs';
+import { deviceKey, signResponse, pendingResponse, clearPendingResponse } from './device.mjs';
 import { hasWebNFC, writeCard, scanCard } from './nfc.mjs';
 
 const $ = selector => document.querySelector(selector);
@@ -9,13 +9,14 @@ const signed = value => (value > 0 ? '+' : '') + value;
 const kindLabel = { contribution: '贡献积分', order: '积分兑换', refund: '原单退回', borrow: '工具借用', expression: '转述许可', grant: '有限授权' };
 let tokens = {}, data = null, terminalData = null, storageId = '', selected = 0, stage = 'home', current = null;
 let decision = null, result = null, prepared = null, hold = null, holdTimer = null, sending = false, epoch = 0;
+let pending = null;
 const home = ['社区积分', '借用电钻', '核对我的转述', '授权小壤行动', '查看我的回执'];
 
 async function api(path, { role = 'member', method = 'GET', body } = {}) {
   const token = tokens[role] || (role === 'terminal' ? tokens.admin : null);
   const response = await fetch(path, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const value = await response.json();
-  if (!response.ok) { const error = new Error(value.error?.message || '操作未完成'); error.code = value.error?.code; throw error; }
+  if (!response.ok) { const error = new Error(value.error?.message || '操作未完成'); error.code = value.error?.code; error.status = response.status; throw error; }
   return value;
 }
 function notify(message, error = false) { const notice = $('#notice'); notice.hidden = false; notice.textContent = message; notice.classList.toggle('error', error); notice.setAttribute('role', error ? 'alert' : 'status'); }
@@ -76,6 +77,26 @@ function render() {
   $('#catalog-select').innerHTML = data.catalog.map(item => '<option value="' + escape(item.id) + '">' + escape(item.name) + ' · ' + item.cost + ' 积分</option>').join('');
   $('#real-tap').disabled = !hasWebNFC(); $('#write-card').disabled = !hasWebNFC();
   renderFulfillment(); renderScreen();
+  renderPending();
+}
+function renderPending() {
+  $('#pending-response').hidden = !pending;
+  if (!pending) return;
+  $('#pending-response-description').textContent = pending.status === 'ready' ? kindLabel[pending.request.kind] + ' · 单据 ' + pending.request.sourceId + ' · 已签名，结果待核对' : '上一次回复尚未完成签名准备。稍后刷新状态；未保存完整签名前不会发出请求。';
+  $('#retry-response').disabled = sending || pending.status !== 'ready';
+}
+async function syncPending() {
+  if (!storageId || !data) return;
+  pending = await pendingResponse(storageId);
+  if (pending?.status === 'ready') {
+    const receipt = data.receipts.find(receipt => receipt.request_id === pending.request.id);
+    const expected = canonical(confirmationFrame(pending.request, pending.reply.deviceId, pending.reply.decision, pending.reply.counter));
+    if (receipt?.frame === expected) {
+      await clearPendingResponse(storageId, pending.claimId); pending = null;
+      notify('上次的明确回复已保存在账本中，没有再次记账');
+    }
+  }
+  renderPending();
 }
 function renderFulfillment() {
   const orders = terminalData?.orders || [];
@@ -91,6 +112,7 @@ async function refresh() {
   const snapshot = await api('/api/me'); data = snapshot;
   if (tokens.admin || tokens.terminal) terminalData = await api('/api/terminal', { role: 'terminal' });
   if (current) { const latest = snapshot.requests.find(r => r.id === current.id); if (latest?.supersededBy && !sending) { cancelHold(); stage = 'home'; current = null; notify('事项已修改，旧版本需要重新征询'); } }
+  await syncPending();
   render();
 }
 async function login(nextTokens) {
@@ -107,6 +129,7 @@ async function login(nextTokens) {
 }
 async function openRequest(id) {
   if (sending) return; cancelHold();
+  if (pending) throw new Error('请先核对上一笔已签名回复的结果，再打开新的事项');
   current = await api('/api/requests/' + id);
   if (current.supersededBy || current.state !== 'pending' || current.expiresAt <= Date.now()) throw new Error('此事项已关闭、改版或过期，请刷新');
   await api('/api/requests/' + id + '/view', { method: 'POST', body: {} });
@@ -134,19 +157,49 @@ async function shortOK() {
 }
 async function submit() {
   if (sending || !current || stage !== 'confirm') return;
+  if (pending) { notify('请先核对上一笔提交结果', true); return; }
   sending = true; renderScreen(); const req = current;
   try {
     const latest = await api('/api/requests/' + req.id);
     if (latest.supersededBy || latest.digest !== req.digest || latest.expiresAt <= Date.now()) throw new Error('事项已修改或过期，请刷新后重新确认');
-    const payload = await signResponse(storageId, data.device, req, decision);
-    const response = await api('/api/requests/' + req.id + '/respond', { method: 'POST', body: payload });
-    await refresh();
-    if (response.transaction) showResult(response.duplicate ? '此单已记账' : response.transaction.kind === 'refund' ? '积分已退回' : response.transaction.delta > 0 ? '积分已入账' : '积分已扣除', signed(response.transaction.delta) + ' 积分 · 当前 ' + response.balance + ' 积分', '交易 ' + response.transaction.id);
-    else showResult('回复已保存', LABELS[decision], response.grant ? '已生成最多使用一次的授权签证' : '仅对应这份具体内容，未授予其他权限');
-    notify('回复已核验并保存');
-  } catch (error) { showResult('本次未完成', error.message, '可刷新查看单据状态，确认失败不会自动扣分'); notify(error.message, true); }
-  finally { sending = false; renderScreen(); }
+    await signResponse(storageId, data.device, req, decision);
+    pending = await pendingResponse(storageId);
+    await transmitPending();
+  } catch (error) { pending = await pendingResponse(storageId); showResult(pending ? '上次结果待核对' : '尚未提交回复', error.message, '结果以社区账本记录为准'); notify(error.message, true); }
+  finally { sending = false; renderScreen(); renderPending(); }
 }
+async function transmitPending() {
+  const operation = pending;
+  if (operation?.status !== 'ready') throw new Error('没有已保存的完整签名可供核对');
+  try {
+    const response = await api('/api/requests/' + operation.request.id + '/respond', { method: 'POST', body: operation.reply });
+    await clearPendingResponse(storageId, operation.claimId); pending = null;
+    data.balance = response.balance;
+    if (data.device?.id === operation.reply.deviceId) data.device.counter = Math.max(data.device.counter, operation.reply.counter);
+    const cachedRequest = data.requests.find(request => request.id === operation.request.id);
+    if (cachedRequest) cachedRequest.state = 'responded';
+    if (!data.receipts.some(receipt => receipt.id === response.receipt.id)) data.receipts.unshift({ ...response.receipt, kind: operation.request.kind, version: operation.request.version, payload: JSON.stringify(operation.request.payload), superseded_by: cachedRequest?.supersededBy || null });
+    if (response.transaction && !data.ledger.some(entry => entry.id === response.transaction.id)) data.ledger.unshift(response.transaction);
+    if (response.grant) { data.grants = data.grants.filter(grant => grant.id !== response.grant.id); data.grants.unshift(response.grant); }
+    let synced = true;
+    try { await refresh(); } catch { synced = false; render(); }
+    if (response.transaction) showResult(response.duplicate ? '此单已记账' : response.transaction.kind === 'refund' ? '积分已退回' : response.transaction.delta > 0 ? '积分已入账' : '积分已扣除', signed(response.transaction.delta) + ' 积分 · 当前 ' + response.balance + ' 积分', '交易 ' + response.transaction.id);
+    else showResult('回复已保存', LABELS[operation.reply.decision], response.grant ? '已记录这份具体授权，请查看授权的当前状态' : '仅对应这份内容，未授予其他权限');
+    notify(synced ? '回复已核验并保存' : '明确回复已保存，其他列表暂未同步。请稍后刷新。');
+  } catch (error) {
+    if (error.status >= 400 && error.status < 500) {
+      await clearPendingResponse(storageId, operation.claimId); pending = null;
+      showResult('此回复未被接受', error.message, '请刷新核对事项、已有回复与积分。');
+    } else showResult('提交结果待核对', '连接中断或服务暂不可用。此笔可能已保存，请核对同一单据。', '原签名已保存在当前设备，恢复连接后重发原回复。');
+    notify(error.message, true);
+  }
+}
+$('#retry-response').addEventListener('click', safely(async () => {
+  if (sending) return; pending = await pendingResponse(storageId); if (pending?.status !== 'ready') return;
+  sending = true; renderPending();
+  try { await transmitPending(); tab('card'); }
+  finally { sending = false; tab('card'); renderScreen(); renderPending(); }
+}));
 function startHold() {
   if (hold || sending) return;
   hold = { start: performance.now(), stage, epoch, completed: false };
@@ -170,7 +223,7 @@ window.addEventListener('blur', cancelHold);
 for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => tab(button.dataset.tab));
 $('#demo-login').addEventListener('click', safely(async () => login(await api('/api/demo/session', { method: 'POST', body: {} }))));
 $('#access-form').addEventListener('submit', safely(async event => { event.preventDefault(); const fields = new FormData(event.target); await login(Object.fromEntries(['member', 'admin', 'terminal', 'agent'].map(role => [role, String(fields.get(role) || '').trim()]))); }));
-$('#logout').addEventListener('click', () => { if (sending) return; cancelHold(); tokens = {}; data = null; terminalData = null; prepared = null; current = null; epoch++; $('#login').hidden = false; $('#workspace').hidden = true; $('#logout').hidden = true; $('#notice').hidden = true; $('#access-form').reset(); });
+$('#logout').addEventListener('click', () => { if (sending) return; cancelHold(); tokens = {}; data = null; terminalData = null; prepared = null; current = null; pending = null; storageId = ''; epoch++; $('#login').hidden = false; $('#workspace').hidden = true; $('#logout').hidden = true; $('#notice').hidden = true; $('#access-form').reset(); for (const id of ['device-screen', 'inbox-list', 'device-info', 'ledger-table', 'grants-list', 'receipt-list', 'fulfillment-list']) $('#' + id).replaceChildren(); $('#points-balance').textContent = '0'; });
 $('#refresh').addEventListener('click', safely(async () => { if (!sending) { await refresh(); notify('事项与积分已更新'); } }));
 function prepare(kind, row, title) { prepared = { kind, sourceId: row.id, title }; $('#prepared-operation').textContent = title + ' · 单据 ' + row.id; $('#nfc-status').textContent = '单据已准备，等待碰卡。'; notify('已准备具体单据，碰卡后由成员回复'); }
 $('#contribution-form').addEventListener('submit', safely(async event => { event.preventDefault(); const form = new FormData(event.target); const row = await api('/api/contributions', { role: 'admin', method: 'POST', body: { id: crypto.randomUUID(), memberId: data.member.id, title: form.get('title'), points: Number(form.get('points')) } }); prepare('contribution', row, row.title + ' +' + row.points + ' 积分'); await refresh(); }));

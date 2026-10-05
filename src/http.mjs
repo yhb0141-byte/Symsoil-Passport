@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { authenticate, CredentialStore } from './auth.mjs';
 import { DomainError, requireCondition } from './errors.mjs';
+import { transaction } from './database.mjs';
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
 const SECURITY_HEADERS = {
@@ -46,6 +47,13 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
         const auth = roles => authenticate(req.headers.authorization, access, roles);
         const memberAuth = () => auth(['member']);
         const operatorAuth = () => auth(['admin', 'terminal']);
+        const mutate = async (roles, perform) => {
+          auth(roles); // Reject unauthenticated requests before reading the body.
+          const body = await readJSON(req);
+          // A credential can be revoked while a slow body is arriving. Recheck under
+          // the same SQLite write lock as the action, not from an earlier snapshot.
+          return transaction(service.db, () => perform(auth(roles), body));
+        };
         if (path === '/api/me' && method === 'GET') return json(res, service.snapshot(memberAuth().subject));
         if (path === '/api/me/export' && method === 'GET') {
           const snapshot = service.snapshot(memberAuth().subject);
@@ -53,28 +61,28 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
             balance: snapshot.balance, ledger: snapshot.ledger, receipts: snapshot.receipts, grants: snapshot.grants,
             requests: snapshot.requests, verificationKeys: snapshot.verificationKeys });
         }
-        if (path === '/api/devices' && method === 'POST') { const actor = memberAuth(); return json(res, service.enroll(actor.subject, (await readJSON(req)).publicKey)); }
+        if (path === '/api/devices' && method === 'POST') return json(res, await mutate(['member'], (actor, body) => service.enroll(actor.subject, body.publicKey)));
         if (path === '/api/admin' && method === 'GET') { auth(['admin']); return json(res, service.adminSnapshot()); }
-        if (path === '/api/members' && method === 'POST') { const actor = auth(['admin']); return json(res, service.createMember(actor.subject, await readJSON(req))); }
+        if (path === '/api/members' && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => service.createMember(actor.subject, body)));
         if (path === '/api/credentials' && method === 'GET') { auth(['admin']); return json(res, { credentials: access.list() }); }
-        if (path === '/api/credentials' && method === 'POST') { const actor = auth(['admin']); return json(res, access.issue(actor.subject, await readJSON(req))); }
+        if (path === '/api/credentials' && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => access.issue(actor.subject, body)));
         if (path === '/api/terminal' && method === 'GET') return json(res, service.terminalSnapshot(operatorAuth().subject));
-        if (path === '/api/contributions' && method === 'POST') { const actor = auth(['admin']); return json(res, service.approveContribution(actor.subject, await readJSON(req))); }
-        if (path === '/api/orders' && method === 'POST') { const actor = operatorAuth(); return json(res, service.createOrder(actor.subject, await readJSON(req))); }
-        if (path === '/api/refunds' && method === 'POST') { const actor = auth(['admin']); return json(res, service.approveRefund(actor.subject, await readJSON(req))); }
-        if (path === '/api/nfc/scan' && method === 'POST') { const actor = operatorAuth(); return json(res, service.scan(actor.subject, await readJSON(req))); }
-        if (path === '/api/requests' && method === 'POST') { const actor = auth(['admin']); return json(res, service.createStatement(actor.subject, await readJSON(req))); }
+        if (path === '/api/contributions' && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => service.approveContribution(actor.subject, body)));
+        if (path === '/api/orders' && method === 'POST') return json(res, await mutate(['admin', 'terminal'], (actor, body) => service.createOrder(actor.subject, body)));
+        if (path === '/api/refunds' && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => service.approveRefund(actor.subject, body)));
+        if (path === '/api/nfc/scan' && method === 'POST') return json(res, await mutate(['admin', 'terminal'], (actor, body) => service.scan(actor.subject, body)));
+        if (path === '/api/requests' && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => service.createStatement(actor.subject, body)));
         let match;
-        if ((match = path.match(/^\/api\/credentials\/([^/]+)\/revoke$/)) && method === 'POST') { const actor = auth(['admin']); await readJSON(req); return json(res, access.revoke(actor.subject, match[1])); }
+        if ((match = path.match(/^\/api\/credentials\/([^/]+)\/revoke$/)) && method === 'POST') return json(res, await mutate(['admin'], actor => access.revoke(actor.subject, match[1])));
         if ((match = path.match(/^\/api\/requests\/([^/]+)$/)) && method === 'GET') return json(res, service.request(memberAuth().subject, match[1]));
-        if ((match = path.match(/^\/api\/requests\/([^/]+)\/respond$/)) && method === 'POST') { const actor = memberAuth(); return json(res, service.respond(actor.subject, match[1], await readJSON(req))); }
-        if ((match = path.match(/^\/api\/requests\/([^/]+)\/view$/)) && method === 'POST') { const actor = memberAuth(); await readJSON(req); return json(res, service.viewed(actor.subject, match[1])); }
-        if ((match = path.match(/^\/api\/requests\/([^/]+)\/cancel$/)) && method === 'POST') { const actor = memberAuth(); await readJSON(req); return json(res, service.cancel(actor.subject, match[1])); }
-        if ((match = path.match(/^\/api\/requests\/([^/]+)\/revise$/)) && method === 'POST') { const actor = auth(['admin']); return json(res, service.revise(actor.subject, match[1], (await readJSON(req)).payload)); }
-        if ((match = path.match(/^\/api\/members\/([^/]+)\/revoke-device$/)) && method === 'POST') { const actor = auth(['admin']); await readJSON(req); return json(res, service.revokeDevice(actor.subject, match[1])); }
-        if ((match = path.match(/^\/api\/orders\/([^/]+)\/fulfill$/)) && method === 'POST') { const actor = operatorAuth(); await readJSON(req); return json(res, service.fulfill(actor.subject, match[1])); }
-        if ((match = path.match(/^\/api\/grants\/([^/]+)\/revoke$/)) && method === 'POST') { const actor = memberAuth(); await readJSON(req); return json(res, service.revokeGrant(actor.subject, match[1])); }
-        if ((match = path.match(/^\/api\/grants\/([^/]+)\/execute$/)) && method === 'POST') { const actor = auth(['agent']); return json(res, service.execute(actor.subject, match[1], await readJSON(req))); }
+        if ((match = path.match(/^\/api\/requests\/([^/]+)\/respond$/)) && method === 'POST') return json(res, await mutate(['member'], (actor, body) => service.respond(actor.subject, match[1], body)));
+        if ((match = path.match(/^\/api\/requests\/([^/]+)\/view$/)) && method === 'POST') return json(res, await mutate(['member'], actor => service.viewed(actor.subject, match[1])));
+        if ((match = path.match(/^\/api\/requests\/([^/]+)\/cancel$/)) && method === 'POST') return json(res, await mutate(['member'], actor => service.cancel(actor.subject, match[1])));
+        if ((match = path.match(/^\/api\/requests\/([^/]+)\/revise$/)) && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => service.revise(actor.subject, match[1], body.payload)));
+        if ((match = path.match(/^\/api\/members\/([^/]+)\/revoke-device$/)) && method === 'POST') return json(res, await mutate(['admin'], actor => service.revokeDevice(actor.subject, match[1])));
+        if ((match = path.match(/^\/api\/orders\/([^/]+)\/fulfill$/)) && method === 'POST') return json(res, await mutate(['admin', 'terminal'], actor => service.fulfill(actor.subject, match[1])));
+        if ((match = path.match(/^\/api\/grants\/([^/]+)\/revoke$/)) && method === 'POST') return json(res, await mutate(['member'], actor => service.revokeGrant(actor.subject, match[1])));
+        if ((match = path.match(/^\/api\/grants\/([^/]+)\/execute$/)) && method === 'POST') return json(res, await mutate(['agent'], (actor, body) => service.execute(actor.subject, match[1], body)));
         throw new DomainError('NOT_FOUND', '接口不存在', 404);
       }
       requireCondition(method === 'GET' || method === 'HEAD', 'METHOD_NOT_ALLOWED', '请求方法不适用', 405);

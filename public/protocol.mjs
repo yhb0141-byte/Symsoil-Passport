@@ -19,7 +19,10 @@ export const LABELS = Object.freeze({
 export function canonical(value) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number' && Number.isSafeInteger(value)) return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) if (!Object.hasOwn(value, index)) throw new TypeError('协议数组不能有缺项');
+    return '[' + value.map(canonical).join(',') + ']';
+  }
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
     return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
   }

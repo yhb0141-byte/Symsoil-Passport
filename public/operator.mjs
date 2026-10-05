@@ -110,6 +110,8 @@ $('#operator-logout').addEventListener('click', () => {
   $('#recovery-dialog').close(); $('#operator-login').hidden = false; $('#operator-workspace').hidden = true;
   $('#operator-logout').hidden = true; $('#operator-notice').hidden = true; $('#operator-access').reset();
   $('#operator-workspace').querySelectorAll('form').forEach(form => form.reset());
+  for (const id of ['operator-orders', 'operator-members', 'operator-credentials', 'operator-events']) $('#' + id).replaceChildren();
+  $('#scan-source').value = ''; $('#operator-manual-scan [name="cardPayload"]').value = '';
 });
 for (const button of document.querySelectorAll('[data-operator-tab]')) button.addEventListener('click', () => tab(button.dataset.operatorTab));
 $('#operator-refresh').addEventListener('click', safely(async () => { await refresh(); notify('运营记录已更新'); }));

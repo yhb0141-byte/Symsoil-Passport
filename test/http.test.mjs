@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { request as httpRequest } from 'node:http';
+import { generateKeyPairSync } from 'node:crypto';
 import { createApp } from '../src/http.mjs';
 import { createCredentials } from '../src/auth.mjs';
 import { fixture } from './helpers.mjs';
@@ -16,7 +17,7 @@ async function app(t, options = {}) {
     const response = await fetch(base + path, { method, headers: { ...(role ? { Authorization: 'Bearer ' + credentials[role].token } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { response, body: await response.json() };
   }
-  return { ...f, credentials, base, request };
+  return { ...f, credentials, base, request, server };
 }
 
 test('member, terminal and agent identities cannot issue community points', async t => {
@@ -104,4 +105,34 @@ test('member creation and credential issuance are admin-only and reveal no store
   assert.equal(own.body.member.id, created.body.id); assert.equal(own.body.balance, 0); assert.equal(own.body.receipts.length, 0);
   await a.request('/api/credentials/' + issued.body.credential.id + '/revoke', { role: 'admin', method: 'POST', body: {} });
   assert.equal((await a.request('/api/me', { role: null, headers: { Authorization: 'Bearer ' + issued.body.token } })).response.status, 401);
+});
+test('a credential revoked while an enrollment body arrives cannot enroll a new device', async t => {
+  const a = await app(t);
+  const arrived = new Promise(resolve => a.server.once('request', resolve));
+  const pair = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  let request;
+  const finished = new Promise((resolve, reject) => {
+    request = httpRequest(a.base + '/api/devices', { method: 'POST', headers: { Authorization: 'Bearer ' + a.credentials.member.token, 'Content-Type': 'application/json' } }, response => {
+      const parts = []; response.on('data', chunk => parts.push(chunk));
+      response.on('end', () => resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(parts).toString()) }));
+    });
+    request.on('error', reject); request.write('{"publicKey":');
+  });
+  await arrived; a.service.revokeDevice('admin', 'M-017');
+  request.end(JSON.stringify(pair.publicKey.export({ format: 'jwk' })) + '}');
+  const response = await finished;
+  assert.equal(response.status, 401); assert.equal(response.body.error.code, 'UNAUTHORIZED');
+  assert.equal(a.service.snapshot('M-017').device, null);
+});
+test('HTTP authorization and nested transactions still roll back an insufficient exchange completely', async t => {
+  const a = await app(t);
+  const order = await a.request('/api/orders', { role: 'terminal', method: 'POST', body: { id: 'EXPENSIVE-HTTP', itemId: 'workshop' } });
+  const scanned = await a.request('/api/nfc/scan', { role: 'terminal', method: 'POST', body: { kind: 'order', sourceId: order.body.id, cardPayload: a.service.ensureCard('M-017').payload } });
+  const request = a.service.request('M-017', scanned.body.requestId), before = a.service.snapshot('M-017');
+  const reply = await a.request('/api/requests/' + request.id + '/respond', { method: 'POST', body: a.response(request) });
+  assert.equal(reply.response.status, 409); assert.equal(reply.body.error.code, 'INSUFFICIENT_POINTS');
+  const after = a.service.snapshot('M-017');
+  assert.equal(after.balance, before.balance); assert.equal(after.ledger.length, before.ledger.length);
+  assert.equal(after.receipts.length, 0); assert.equal(after.device.counter, before.device.counter);
+  assert.equal(after.catalog.find(item => item.id === 'workshop').stock, before.catalog.find(item => item.id === 'workshop').stock);
 });
