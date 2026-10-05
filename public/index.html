@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#183d2e">
+  <title>共壤 Passport</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">S<span></span></span><span>共壤 <small>Passport</small></span></a>
+    <div class="header-meta"><span id="mode-label">本地终端</span><button id="logout" class="quiet" hidden>退出</button></div>
+  </header>
+  <main>
+    <section id="login" class="login-panel">
+      <p class="eyebrow">九华共壤 · 随身协作</p>
+      <h1>看清事项，再确认。</h1>
+      <p>领取贡献积分，兑换社区资源，把每一次回复留在具体的事项里。</p>
+      <button id="demo-login" class="primary" hidden>开启本地试用</button>
+      <form id="access-form">
+        <label>成员访问凭证<input name="member" type="password" autocomplete="off" required placeholder="粘贴分配给你的成员凭证"></label>
+        <details><summary>运营或执行者凭证</summary>
+          <label>核定人凭证<input name="admin" type="password" autocomplete="off"></label>
+          <label>兑换终端凭证<input name="terminal" type="password" autocomplete="off"></label>
+          <label>小壤执行凭证<input name="agent" type="password" autocomplete="off"></label>
+        </details>
+        <button type="submit" class="secondary">进入社区</button>
+      </form>
+      <p class="muted small">访问凭证由社区分配。试用账户与实际运营账本分别保存。</p>
+      <a class="muted small" href="/operator.html">进入独立社区运营终端</a>
+    </section>
+    <div id="workspace" hidden>
+      <section class="welcome"><div><p class="eyebrow">九华共壤社区</p><h1 id="greeting">我的随身卡</h1></div><button id="refresh" class="secondary">刷新事项</button></section>
+      <p id="sync-status" class="muted small" role="status">事项自动同步中</p>
+      <section id="pending-response" class="surface" hidden><h2>上次回复的结果待核对</h2><p id="pending-response-description"></p><button id="retry-response" class="secondary">核对同一笔提交结果</button><p class="muted small">已签名的内容保存在当前设备。核对只重发原回复，不替你重新批准。</p></section>
+      <nav class="tabs" aria-label="功能导航">
+        <button data-tab="card" aria-current="page">随身卡</button>
+        <button data-tab="points">社区积分</button>
+        <button data-tab="grants">授权签证</button>
+        <button data-tab="receipts">我的回执</button>
+        <button data-tab="terminal">运营终端</button>
+      </nav>
+      <section id="card-panel" class="panel" aria-label="随身卡">
+        <div class="card-layout">
+          <section class="device" aria-label="随身确认卡">
+            <div class="lanyard" aria-hidden="true"></div>
+            <div id="device-screen" class="device-screen" aria-live="polite" aria-atomic="true"></div>
+            <div class="physical-keys" aria-label="物理按键演示">
+              <button data-key="up" aria-label="上一项 或返回">上</button>
+              <button data-key="down" aria-label="下一项">下</button>
+              <button data-key="ok" aria-label="OK 短按打开 长按两秒确认">OK</button>
+            </div>
+            <p class="device-brand">共壤 · SYMSOIL</p>
+          </section>
+          <section class="inbox surface">
+            <div class="section-head"><h2>等待我的回复</h2><span id="pending-count" class="muted"></span></div>
+            <div id="inbox-list"></div>
+            <p class="muted small">打开和查看只记录查看状态。积分扣除、承担任务与正式批准分别记录。</p>
+            <details class="device-info"><summary>卡片与设备</summary><div id="device-info"></div></details>
+          </section>
+        </div>
+      </section>
+      <section id="points-panel" class="panel" aria-label="社区积分" hidden>
+        <div class="surface points-summary"><div><p class="muted">我的可用积分</p><p class="big-number" id="points-balance">0</p></div><div><h2>贡献入账，碰卡兑换。</h2><p>核定人确认贡献后领取积分。兑换物品或服务前，核对事项和分值，再按键确认。</p><button id="export" class="secondary">导出我的记录</button></div></div>
+        <section class="surface"><h2>积分明细</h2><div id="ledger-table" class="table-wrap"></div></section>
+      </section>
+      <section id="grants-panel" class="panel" aria-label="授权签证" hidden>
+        <section class="surface"><div class="section-head"><h2>我的有限授权</h2><span class="muted small">权限到期不自动续签</span></div><div id="grants-list"></div></section>
+        <section class="surface"><h2>菜园维护排班</h2><p id="roster"></p><p class="muted small">小壤只在已批准的具体内容、资源、期限和次数内更新这份排班。</p></section>
+      </section>
+      <section id="receipts-panel" class="panel" aria-label="我的回执" hidden><section class="surface"><h2>明确回复的记录</h2><div id="receipt-list"></div></section></section>
+      <section id="terminal-panel" class="panel" aria-label="社区运营终端" hidden>
+        <p id="operator-required" class="muted" hidden>运营终端需要单独分配的核定人或兑换终端凭证。</p>
+        <div id="operator-tools" class="operator-layout">
+          <section class="surface"><h2>准备积分单据</h2>
+            <form id="contribution-form"><label>已核定的贡献<input name="title" value="菜园维护" maxlength="300" required></label><label>积分数<input name="points" type="number" value="30" min="1" max="100" required></label><button class="secondary" type="submit">核定这笔贡献</button></form>
+            <form id="order-form"><label>兑换物品或服务<select name="itemId" id="catalog-select"></select></label><button class="secondary" type="submit">新建兑换单</button></form>
+            <button id="refund" class="quiet">按最近一笔未交付扣分退回积分</button>
+          </section>
+          <section class="surface nfc-terminal"><p class="eyebrow">NFC 社区终端</p><h2>碰一碰，把事项送到卡上。</h2><div id="prepared-operation" class="prepared-operation">先准备一张贡献或兑换单。</div><button id="simulated-tap" class="primary">模拟 NFC 碰一碰</button><button id="real-tap" class="secondary">用 NFC 读卡</button><button id="write-card" class="quiet">用 NFC 写入账户入口</button><p id="nfc-status" class="muted small" aria-live="polite">NFC 只读取账户入口，碰卡不会直接扣分。</p></section>
+          <section class="surface"><h2>其他待确认事项</h2><div class="action-list"><button id="prepare-borrow" class="secondary">发起工具借用</button><button id="prepare-expression" class="secondary">发起转述核对</button><button id="revise-expression" class="quiet">修改当前转述稿</button><button id="prepare-grant" class="secondary">发起小壤有限授权</button></div><p class="muted small">修改内容会生成新版本，旧回执保留为历史记录。</p></section>
+          <section class="surface"><h2>兑换交付</h2><div id="fulfillment-list"></div></section>
+        </div>
+      </section>
+    </div>
+    <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+  </main>
+  <footer>共壤 Passport · 成员身份、明确确认与社区积分<span id="demo-footnote" hidden>本地试用 · 浏览器签名设备 · 尚未连接真实工牌</span></footer>
+</body>
+</html>

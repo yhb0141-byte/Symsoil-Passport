@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+target="${1:-}"
+source "${root}/upstream.env"
+
+if [[ -z "${target}" || ! -d "${target}/.git" ]]; then
+    echo "Usage: $0 /path/to/clean/folotoy-ai-passport" >&2
+    exit 2
+fi
+if [[ "$(git -C "${target}" rev-parse HEAD)" != "${FOLOTOY_UPSTREAM_COMMIT}" ]]; then
+    echo "Upstream checkout does not match ${FOLOTOY_UPSTREAM_COMMIT}." >&2
+    exit 1
+fi
+if [[ -n "$(git -C "${target}" status --short)" ]]; then
+    echo "Upstream checkout has changes; refusing to overwrite them." >&2
+    exit 1
+fi
+
+git -C "${target}" apply --unidiff-zero --check "${root}/bsp-long-confirm.patch"
+git -C "${target}" apply --unidiff-zero "${root}/bsp-long-confirm.patch"
+install -m 0644 "${root}/overlay/main/CMakeLists.txt" "${target}/main/CMakeLists.txt"
+install -m 0644 "${root}/overlay/main/main.c" "${target}/main/main.c"
+install -m 0644 "${root}/overlay/main/passport_core.c" "${target}/main/passport_core.c"
+install -m 0644 "${root}/overlay/main/passport_core.h" "${target}/main/passport_core.h"
+install -m 0644 "${root}/overlay/main/passport_protocol.c" "${target}/main/passport_protocol.c"
+install -m 0644 "${root}/overlay/main/passport_protocol.h" "${target}/main/passport_protocol.h"
+install -m 0644 "${root}/overlay/main/passport_crypto.h" "${target}/main/passport_crypto.h"
+install -m 0644 "${root}/overlay/main/passport_crypto_mbedtls.c" "${target}/main/passport_crypto_mbedtls.c"
+install -m 0644 "${root}/overlay/main/passport_vectors.c" "${target}/main/passport_vectors.c"
+install -m 0644 "${root}/overlay/main/passport_vectors.h" "${target}/main/passport_vectors.h"
+install -m 0644 "${root}/overlay/main/passport_outbox.c" "${target}/main/passport_outbox.c"
+install -m 0644 "${root}/overlay/main/passport_outbox.h" "${target}/main/passport_outbox.h"
+install -m 0644 "${root}/overlay/main/passport_outbox_nvs.c" "${target}/main/passport_outbox_nvs.c"
+install -m 0644 "${root}/overlay/main/passport_outbox_nvs.h" "${target}/main/passport_outbox_nvs.h"
+install -m 0644 "${root}/overlay/main/passport_transport.c" "${target}/main/passport_transport.c"
+install -m 0644 "${root}/overlay/main/passport_transport.h" "${target}/main/passport_transport.h"
+install -m 0644 "${root}/overlay/main/passport_delivery.c" "${target}/main/passport_delivery.c"
+install -m 0644 "${root}/overlay/main/passport_delivery.h" "${target}/main/passport_delivery.h"
+install -m 0644 "${root}/overlay/tests/test_passport_core.c" "${target}/tests/test_passport_core.c"
+install -m 0644 "${root}/overlay/tests/test_passport_outbox.c" "${target}/tests/test_passport_outbox.c"
+install -m 0644 "${root}/overlay/tests/test_passport_delivery.c" "${target}/tests/test_passport_delivery.c"
+
+echo "Applied Symsoil Passport hardware acceptance overlay to ${target}."
