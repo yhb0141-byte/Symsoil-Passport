@@ -53,9 +53,9 @@ npm run demo
 
 「用 NFC 读卡」「用 NFC 写入账户入口」已接入 Web NFC；浏览器会在支持的安全环境中请求 NFC 权限。不支持的浏览器会禁用这两个按钮，模拟碰卡仍可体验完整流程。真实 NFC 收发尚未经过实物测试。
 
-**当前确认设备是浏览器。** FoloToy 工牌固件、BLE 传输、桌面 USB 读卡器和安全 NFC 卡钱包尚未实现。使用工牌现有的被动标签时，读写需要外部读卡端；本版没有把余额写入标签来充当离线钱包。
+浏览器仍是完整业务流程的确认设备。仓库新增了锁定 FoloToy 官方提交的 ESP32-C3 **硬件验收固件覆盖层**：屏幕显示六类独立事项语义，只有最终复核页连续长按 OK 两秒才产生合成验收事件；短按、沉默、错误按键、到期或改版均不会提交。它已通过 ESP-IDF 5.5.3 交叉编译，但尚未刷入真实工牌，也没有接入密钥、BLE 或账本。使用工牌现有的被动 NTAG213 时，读写仍需要外部读卡端；本版没有把余额写入标签来充当离线钱包。
 
-见 [硬件接入约定](firmware/README.md)、[API 与协议](docs/api.md) 和 [Web NFC 官方说明](https://developer.chrome.com/docs/capabilities/nfc)。
+见 [FoloToy 硬件验收固件](firmware/folotoy/README.md)、[硬件接入约定](firmware/README.md)、[API 与协议](docs/api.md) 和 [Web NFC 官方说明](https://developer.chrome.com/docs/capabilities/nfc)。
 
 ## 普通本地模式
 
@@ -89,6 +89,7 @@ npm start
 ```sh
 npm run check
 npm test
+npm run test:firmware-host
 ```
 
 测试覆盖权限隔离、签名伪造、旧版本与过期回复、重放、重复碰卡、余额与库存不足时回滚、原单退回、授权越界与撤销、数据库重开及导出核验。GitHub Actions 在分支提交和 Pull Request 上运行这些检查。

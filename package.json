@@ -1,6 +1,6 @@
 {
   "name": "symsoil-passport",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24.0.0" },
@@ -11,6 +11,7 @@
     "check": "node scripts/check.mjs",
     "test:ui": "node scripts/ui-smoke.mjs",
     "test:protocol": "node --test test/protocol.test.mjs",
+    "test:firmware-host": "./firmware/folotoy/test-host.sh",
     "verify-export": "node scripts/verify-export.mjs"
   }
 }
