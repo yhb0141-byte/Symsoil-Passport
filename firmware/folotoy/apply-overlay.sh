@@ -36,7 +36,10 @@ install -m 0644 "${root}/overlay/main/passport_outbox_nvs.c" "${target}/main/pas
 install -m 0644 "${root}/overlay/main/passport_outbox_nvs.h" "${target}/main/passport_outbox_nvs.h"
 install -m 0644 "${root}/overlay/main/passport_transport.c" "${target}/main/passport_transport.c"
 install -m 0644 "${root}/overlay/main/passport_transport.h" "${target}/main/passport_transport.h"
+install -m 0644 "${root}/overlay/main/passport_delivery.c" "${target}/main/passport_delivery.c"
+install -m 0644 "${root}/overlay/main/passport_delivery.h" "${target}/main/passport_delivery.h"
 install -m 0644 "${root}/overlay/tests/test_passport_core.c" "${target}/tests/test_passport_core.c"
 install -m 0644 "${root}/overlay/tests/test_passport_outbox.c" "${target}/tests/test_passport_outbox.c"
+install -m 0644 "${root}/overlay/tests/test_passport_delivery.c" "${target}/tests/test_passport_delivery.c"
 
 echo "Applied Symsoil Passport hardware acceptance overlay to ${target}."
