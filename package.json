@@ -1,0 +1,15 @@
+{
+  "name": "symsoil-passport",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "demo": "node src/server.mjs --demo",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs",
+    "verify-export": "node scripts/verify-export.mjs"
+  }
+}
