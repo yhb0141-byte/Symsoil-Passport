@@ -19,6 +19,27 @@ int main(void)
     assert(passport_protocol_vectors(&vector_count) != NULL);
     assert(vector_count == 4);
 
+    const passport_delivery_result_vector_t *delivery = passport_delivery_result_vector();
+    assert(delivery != NULL);
+    char delivery_frame[PASSPORT_DELIVERY_RESULT_FRAME_MAX];
+    size_t delivery_length = 0;
+    assert(passport_delivery_result_frame_json(&delivery->frame, delivery_frame,
+        sizeof(delivery_frame), &delivery_length) == PASSPORT_PROTOCOL_OK);
+    assert(delivery_length == strlen(delivery->canonical_frame));
+    assert(strcmp(delivery_frame, delivery->canonical_frame) == 0);
+    passport_delivery_result_frame_t invalid_delivery = delivery->frame;
+    invalid_delivery.transfer_id = 0;
+    assert(passport_delivery_result_frame_json(&invalid_delivery, delivery_frame,
+        sizeof(delivery_frame), &delivery_length) == PASSPORT_PROTOCOL_INVALID_FIELD);
+    invalid_delivery = delivery->frame;
+    invalid_delivery.outcome = "pending";
+    assert(passport_delivery_result_frame_json(&invalid_delivery, delivery_frame,
+        sizeof(delivery_frame), &delivery_length) == PASSPORT_PROTOCOL_INVALID_FIELD);
+    invalid_delivery = delivery->frame;
+    invalid_delivery.reply_signature = "short";
+    assert(passport_delivery_result_frame_json(&invalid_delivery, delivery_frame,
+        sizeof(delivery_frame), &delivery_length) == PASSPORT_PROTOCOL_INVALID_FIELD);
+
     uint8_t decoded[64];
     size_t decoded_length = 0;
     assert(passport_base64url_decode(

@@ -91,7 +91,48 @@ def verify(document):
     return len(document["vectors"])
 
 
+def verify_delivery(document):
+    if document["protocol"] != "symsoil-delivery-result/1" or document.get("synthetic") is not True:
+        raise ValueError("Expected a synthetic symsoil-delivery-result/1 vector file")
+    vector = document["vector"]
+    frame = vector["frame"]
+    if frame["protocol"] != document["protocol"] or frame["outcome"] not in ("accepted", "rejected"):
+        raise ValueError("Invalid delivery result frame")
+    serialized = canonical(frame)
+    if serialized != vector["canonicalFrame"]:
+        raise ValueError("Delivery result frame mismatch")
+    jwk = vector["publicKey"]
+    if jwk["kty"] != "EC" or jwk["crv"] != "P-256" or "d" in jwk:
+        raise ValueError("Expected a public-only P-256 service key")
+    public_key = ec.EllipticCurvePublicNumbers(
+        int.from_bytes(decode(jwk["x"]), "big"),
+        int.from_bytes(decode(jwk["y"]), "big"),
+        ec.SECP256R1(),
+    ).public_key()
+    signature = decode(vector["signature"])
+    if len(signature) != 64:
+        raise ValueError("Expected 64-byte P1363 service signature")
+    der = encode_dss_signature(int.from_bytes(signature[:32], "big"), int.from_bytes(signature[32:], "big"))
+    public_key.verify(der, serialized.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+    changed_frames = [
+        dict(frame, outcome="rejected" if frame["outcome"] == "accepted" else "accepted"),
+        dict(frame, transferId=frame["transferId"] + 1),
+        dict(frame, replySignature="A" * 86),
+    ]
+    for changed in changed_frames:
+        try:
+            public_key.verify(der, canonical(changed).encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+        except InvalidSignature:
+            pass
+        else:
+            raise ValueError("Modified delivery result unexpectedly passed verification")
+    return 1
+
+
 if __name__ == "__main__":
-    filename = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "firmware/protocol-vectors/confirmation-v1.json"
+    root = Path(__file__).resolve().parents[1]
+    filename = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "firmware/protocol-vectors/confirmation-v1.json"
+    delivery_filename = Path(sys.argv[2]) if len(sys.argv) > 2 else root / "firmware/protocol-vectors/delivery-result-v1.json"
     count = verify(json.loads(filename.read_text(encoding="utf-8")))
-    print(f"Independent Python verification passed: {count} P-256 vectors and UTF-16/UTF-8 serializer cases.")
+    delivery_count = verify_delivery(json.loads(delivery_filename.read_text(encoding="utf-8")))
+    print(f"Independent Python verification passed: {count} confirmation vectors, {delivery_count} delivery-result vector and UTF-16/UTF-8 serializer cases.")

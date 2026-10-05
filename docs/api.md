@@ -112,6 +112,8 @@ NFC 扫描正文：
 
 浏览器设备先持久化完整签名再发送。网络错误或5xx不能证明事务没有成功；保留原回复，重连后原样核对。已经有相同回执时，读取结果或原签名重试不会再次记账。明确的4xx拒绝会释放本地待核对回复；用户需重新读取当前事项，不自动补签。只有签名准备阶段中断且未保存完整签名的占位才会在60秒后释放；已保存的签名不会据本地超时自动删除。
 
+工牌断线交付另定义 `symsoil-delivery-result/1` 最终结果帧。canonical对象固定包含 `communityId`、`outcome`（`accepted`或`rejected`）、`protocol`、`replySignature`、`requestId`、`resultId` 和非零 `transferId`，由社区服务以 ECDSA P-256 / SHA-256、64字节P1363格式签名。设备只有在受信服务公钥核验通过，且帧中的请求、传输号和原成员签名都与NVS待核对记录一致后，才可清除回执。固定合成向量见 `firmware/protocol-vectors/delivery-result-v1.json`。当前HTTP响应尚未输出该签名封装，服务公钥配置/轮换及协调器接线仍待实现。
+
 挑战的有效期为两分钟，避免沉默变成默认同意。卡片必须先显示完整正文和明确的选择，摘要前缀不能替代正文阅读。回执保存后不可改写；新的语义需要新的事项。
 
 ## 错误
@@ -134,4 +136,4 @@ NFC 扫描正文：
 
 下一阶段 BLE 帧、配对、分片、断线重连与固件签名尚未实现。现有签名帧可以复用，但这份 HTTP 接口不是现成 BLE 固件。硬件要求见 [firmware/README.md](../firmware/README.md)。
 
-固定协议向量位于 `firmware/protocol-vectors/confirmation-v1.json`，仅含合成内容、公钥与签名。Node 和独立 Python 实现已核验 UTF-16 键序、UTF-8 内容、控制字符与孤立代理字符的编码、P1363签名及篡改失败。见 [向量说明](../firmware/protocol-vectors/README.md)。
+固定协议向量位于 `firmware/protocol-vectors/confirmation-v1.json` 和 `firmware/protocol-vectors/delivery-result-v1.json`，仅含合成内容、公钥与签名。Node 和独立 Python 实现已核验 UTF-16 键序、UTF-8 内容、控制字符与孤立代理字符的编码、P1363签名及确认/结果字段篡改失败。见 [向量说明](../firmware/protocol-vectors/README.md)。

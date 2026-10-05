@@ -164,6 +164,44 @@ passport_protocol_result_t passport_confirmation_frame_json(
     return writer.result;
 }
 
+passport_protocol_result_t passport_delivery_result_frame_json(
+    const passport_delivery_result_frame_t *frame,
+    char *output,
+    size_t capacity,
+    size_t *length)
+{
+    uint8_t decoded_signature[64];
+    size_t decoded_signature_length = 0;
+    if (length) *length = 0;
+    if (!frame || !output || !capacity || !length || !frame->community_id ||
+        !frame->outcome || !frame->reply_signature || !frame->request_id ||
+        !frame->result_id) {
+        return PASSPORT_PROTOCOL_INVALID_ARGUMENT;
+    }
+    output[0] = '\0';
+    if ((strcmp(frame->outcome, "accepted") != 0 && strcmp(frame->outcome, "rejected") != 0) ||
+        !frame->community_id[0] || !frame->request_id[0] || !frame->result_id[0] ||
+        !frame->transfer_id ||
+        passport_base64url_decode(frame->reply_signature, decoded_signature,
+            sizeof(decoded_signature), &decoded_signature_length) != PASSPORT_PROTOCOL_OK ||
+        decoded_signature_length != sizeof(decoded_signature)) {
+        return PASSPORT_PROTOCOL_INVALID_FIELD;
+    }
+
+    writer_t writer = { .output = output, .capacity = capacity, .result = PASSPORT_PROTOCOL_OK };
+    put_byte(&writer, '{');
+    field_string(&writer, "communityId", frame->community_id, true);
+    field_string(&writer, "outcome", frame->outcome, false);
+    field_string(&writer, "protocol", "symsoil-delivery-result/1", false);
+    field_string(&writer, "replySignature", frame->reply_signature, false);
+    field_string(&writer, "requestId", frame->request_id, false);
+    field_string(&writer, "resultId", frame->result_id, false);
+    field_uint(&writer, "transferId", frame->transfer_id);
+    put_byte(&writer, '}');
+    if (writer.result == PASSPORT_PROTOCOL_OK) *length = writer.length;
+    return writer.result;
+}
+
 static int base64url_value(char byte)
 {
     if (byte >= 'A' && byte <= 'Z') return byte - 'A';

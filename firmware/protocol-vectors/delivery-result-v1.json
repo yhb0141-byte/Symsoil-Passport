@@ -1,0 +1,24 @@
+{
+  "protocol": "symsoil-delivery-result/1",
+  "synthetic": true,
+  "description": "Public-only service result vector. It contains no private key, credential, personal data or real transaction.",
+  "vector": {
+    "frame": {
+      "communityId": "synthetic-community",
+      "outcome": "accepted",
+      "protocol": "symsoil-delivery-result/1",
+      "replySignature": "iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg",
+      "requestId": "synthetic-request-1",
+      "resultId": "synthetic-receipt-1",
+      "transferId": 2712847316
+    },
+    "canonicalFrame": "{\"communityId\":\"synthetic-community\",\"outcome\":\"accepted\",\"protocol\":\"symsoil-delivery-result/1\",\"replySignature\":\"iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg\",\"requestId\":\"synthetic-request-1\",\"resultId\":\"synthetic-receipt-1\",\"transferId\":2712847316}",
+    "publicKey": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "Hei3SGJ900FeMBCqjbxCgnHqjFghW8vLDeK8UJ79RTg",
+      "y": "hoalYFwvFNDgj8aMh2kST8QdmFm_nqwJJT8UaXzPVYY"
+    },
+    "signature": "X1zi6IbSrmN7gqegYAYqLQVIBLLaGs1hvA5ZZzr_nx5Lb10Y6EZl1yCzLThlw3aefPUsQ7uIcQrGQnfoZ017zg"
+  }
+}

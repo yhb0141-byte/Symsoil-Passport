@@ -6,6 +6,10 @@ const vectors = JSON.parse(readFileSync(
   new URL('../firmware/protocol-vectors/confirmation-v1.json', import.meta.url),
   'utf8',
 ));
+const delivery = JSON.parse(readFileSync(
+  new URL('../firmware/protocol-vectors/delivery-result-v1.json', import.meta.url),
+  'utf8',
+));
 const source = readFileSync(
   new URL('../firmware/folotoy/overlay/main/passport_vectors.c', import.meta.url),
   'utf8',
@@ -20,6 +24,14 @@ test('FoloToy firmware embeds every published protocol vector byte-for-byte', ()
     assert.match(source, new RegExp(`\\.canonical_frame = ${escapeRegExp(JSON.stringify(vector.canonicalFrame))},`));
     assert.match(source, new RegExp(`\\.signature = ${escapeRegExp(JSON.stringify(vector.signature))},`));
   }
+});
+
+test('FoloToy firmware embeds the signed delivery result vector byte-for-byte', () => {
+  const vector = delivery.vector;
+  assert.match(source, new RegExp(`\\.canonical_frame = ${escapeRegExp(JSON.stringify(vector.canonicalFrame))},`));
+  assert.match(source, new RegExp(`\\.public_x = ${escapeRegExp(JSON.stringify(vector.publicKey.x))},`));
+  assert.match(source, new RegExp(`\\.public_y = ${escapeRegExp(JSON.stringify(vector.publicKey.y))},`));
+  assert.match(source, new RegExp(`\\.signature = ${escapeRegExp(JSON.stringify(vector.signature))},`));
 });
 
 function escapeRegExp(value) {

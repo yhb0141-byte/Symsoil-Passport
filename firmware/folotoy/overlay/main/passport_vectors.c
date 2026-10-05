@@ -95,10 +95,30 @@ static const passport_protocol_vector_t VECTORS[] = {
     },
 };
 
+static const passport_delivery_result_vector_t DELIVERY_RESULT_VECTOR = {
+    .frame = {
+        .community_id = "synthetic-community",
+        .outcome = "accepted",
+        .reply_signature = "iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg",
+        .request_id = "synthetic-request-1",
+        .result_id = "synthetic-receipt-1",
+        .transfer_id = UINT32_C(2712847316),
+    },
+    .canonical_frame = "{\"communityId\":\"synthetic-community\",\"outcome\":\"accepted\",\"protocol\":\"symsoil-delivery-result/1\",\"replySignature\":\"iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg\",\"requestId\":\"synthetic-request-1\",\"resultId\":\"synthetic-receipt-1\",\"transferId\":2712847316}",
+    .public_x = "Hei3SGJ900FeMBCqjbxCgnHqjFghW8vLDeK8UJ79RTg",
+    .public_y = "hoalYFwvFNDgj8aMh2kST8QdmFm_nqwJJT8UaXzPVYY",
+    .signature = "X1zi6IbSrmN7gqegYAYqLQVIBLLaGs1hvA5ZZzr_nx5Lb10Y6EZl1yCzLThlw3aefPUsQ7uIcQrGQnfoZ017zg",
+};
+
 const passport_protocol_vector_t *passport_protocol_vectors(size_t *count)
 {
     if (count) *count = sizeof(VECTORS) / sizeof(VECTORS[0]);
     return VECTORS;
+}
+
+const passport_delivery_result_vector_t *passport_delivery_result_vector(void)
+{
+    return &DELIVERY_RESULT_VECTOR;
 }
 
 static int frame_selftest(const passport_protocol_vector_t *vector)
@@ -162,5 +182,46 @@ int passport_protocol_vectors_selftest(void)
         }
 #endif
     }
+    char result_frame[PASSPORT_DELIVERY_RESULT_FRAME_MAX];
+    size_t result_length = 0;
+    if (passport_delivery_result_frame_json(&DELIVERY_RESULT_VECTOR.frame,
+            result_frame, sizeof(result_frame), &result_length) != PASSPORT_PROTOCOL_OK ||
+        result_length != strlen(DELIVERY_RESULT_VECTOR.canonical_frame) ||
+        strcmp(result_frame, DELIVERY_RESULT_VECTOR.canonical_frame) != 0) {
+        return -100;
+    }
+#ifdef ESP_PLATFORM
+    uint8_t result_public_x[PASSPORT_P256_COORD_SIZE];
+    uint8_t result_public_y[PASSPORT_P256_COORD_SIZE];
+    uint8_t result_signature[PASSPORT_P256_P1363_SIZE];
+    size_t result_public_x_length = 0;
+    size_t result_public_y_length = 0;
+    size_t result_signature_length = 0;
+    if (passport_base64url_decode(DELIVERY_RESULT_VECTOR.public_x, result_public_x,
+            sizeof(result_public_x), &result_public_x_length) != PASSPORT_PROTOCOL_OK ||
+        result_public_x_length != sizeof(result_public_x) ||
+        passport_base64url_decode(DELIVERY_RESULT_VECTOR.public_y, result_public_y,
+            sizeof(result_public_y), &result_public_y_length) != PASSPORT_PROTOCOL_OK ||
+        result_public_y_length != sizeof(result_public_y) ||
+        passport_base64url_decode(DELIVERY_RESULT_VECTOR.signature, result_signature,
+            sizeof(result_signature), &result_signature_length) != PASSPORT_PROTOCOL_OK ||
+        result_signature_length != sizeof(result_signature)) {
+        return -101;
+    }
+    if (!passport_p256_verify_p1363(result_public_x, result_public_y,
+            (const uint8_t *)result_frame, result_length, result_signature)) {
+        return -102;
+    }
+    passport_delivery_result_frame_t changed_result = DELIVERY_RESULT_VECTOR.frame;
+    changed_result.outcome = "rejected";
+    char changed_frame[PASSPORT_DELIVERY_RESULT_FRAME_MAX];
+    size_t changed_length = 0;
+    if (passport_delivery_result_frame_json(&changed_result, changed_frame,
+            sizeof(changed_frame), &changed_length) != PASSPORT_PROTOCOL_OK ||
+        passport_p256_verify_p1363(result_public_x, result_public_y,
+            (const uint8_t *)changed_frame, changed_length, result_signature)) {
+        return -103;
+    }
+#endif
     return 0;
 }

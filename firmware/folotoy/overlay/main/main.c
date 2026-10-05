@@ -240,7 +240,7 @@ void app_main(void)
         ESP_LOGE(TAG, "synthetic protocol self-test failed at stage %d", protocol_selftest);
         return;
     }
-    ESP_LOGI(TAG, "four synthetic canonical/P-256 protocol vectors passed");
+    ESP_LOGI(TAG, "synthetic confirmation and signed-result protocol vectors passed");
     passport_model_init(&s_model);
     s_fixture = (passport_request_t) {
         .kind = PASSPORT_KIND_CONTRIBUTION,
