@@ -78,6 +78,13 @@ export function openDatabase(path = ':memory:') {
       id INTEGER PRIMARY KEY, actor TEXT NOT NULL, type TEXT NOT NULL, target TEXT NOT NULL,
       details TEXT NOT NULL, created_at INTEGER NOT NULL
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS credentials (
+      id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('member','admin','terminal','agent')),
+      subject TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
+      issued_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER,
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), revoked_at INTEGER
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS credentials_subject ON credentials(role,subject);
     CREATE TRIGGER IF NOT EXISTS ledger_no_update BEFORE UPDATE ON ledger BEGIN SELECT RAISE(ABORT, 'ledger is append-only'); END;
     CREATE TRIGGER IF NOT EXISTS ledger_no_delete BEFORE DELETE ON ledger BEGIN SELECT RAISE(ABORT, 'ledger is append-only'); END;
     CREATE TRIGGER IF NOT EXISTS receipts_no_update BEFORE UPDATE ON receipts BEGIN SELECT RAISE(ABORT, 'receipts are immutable'); END;

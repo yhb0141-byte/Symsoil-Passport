@@ -62,7 +62,7 @@ test('terminal NFC response reveals no balance or private history and does not i
   const responded = await a.request('/api/requests/' + req.id + '/respond', { method: 'POST', body: a.response(req) });
   assert.equal(responded.body.balance, 80); assert.equal(responded.response.status, 200);
   const terminal = await a.request('/api/terminal', { role: 'terminal' });
-  assert.deepEqual(Object.keys(terminal.body), ['orders']);
+  assert.deepEqual(Object.keys(terminal.body), ['catalog', 'orders']);
   assert.equal(terminal.body.orders[0].paid, 1);
   assert.equal(terminal.body.orders[0].refunded, 0);
   assert.equal(terminal.body.orders[0].balance, undefined);
@@ -71,7 +71,9 @@ test('terminal NFC response reveals no balance or private history and does not i
   assert.equal((await a.request('/api/orders/' + order.body.id + '/fulfill', { role: 'terminal', method: 'POST', body: {} })).response.status, 200);
 });
 test('a second member cannot read the first member request or export', async t => {
-  const a = await app(t), req = a.credit(); a.credentials.member.subject = 'M-018';
+  const a = await app(t), req = a.credit();
+  const issued = await a.request('/api/credentials', { role: 'admin', method: 'POST', body: { role: 'member', subject: 'M-018' } });
+  a.credentials.member.token = issued.body.token;
   assert.equal((await a.request('/api/requests/' + req.id)).response.status, 404);
   const own = await a.request('/api/me/export'); assert.equal(own.body.memberId, 'M-018'); assert.equal(own.body.receipts.length, 0);
 });
@@ -83,4 +85,23 @@ test('oversized requests are rejected and secret runtime files are never served'
   const page = await fetch(a.base + '/'); assert.equal(page.status, 200);
   assert.ok(page.headers.get('content-security-policy').includes("script-src 'self'"));
   assert.equal(page.headers.get('cache-control'), 'no-store');
+});
+test('member creation and credential issuance are admin-only and reveal no stored secrets', async t => {
+  const a = await app(t);
+  for (const role of ['member', 'terminal', 'agent']) {
+    assert.equal((await a.request('/api/members', { role, method: 'POST', body: { id: 'M-HTTP', name: '新伙伴' } })).response.status, 403);
+    assert.equal((await a.request('/api/credentials', { role, method: 'POST', body: { role: 'member', subject: 'M-018' } })).response.status, 403);
+    assert.equal((await a.request('/api/credentials', { role })).response.status, 403);
+  }
+  const created = await a.request('/api/members', { role: 'admin', method: 'POST', body: { id: 'M-HTTP', name: '新伙伴' } });
+  assert.equal(created.response.status, 200); assert.equal(a.service.balance(created.body.id), 0);
+  const issued = await a.request('/api/credentials', { role: 'admin', method: 'POST', body: { role: 'member', subject: created.body.id, ttlHours: 1 } });
+  assert.equal(issued.response.status, 200); assert.match(issued.body.token, /^[A-Za-z0-9_-]{43}$/);
+  const list = await a.request('/api/credentials', { role: 'admin' });
+  assert.equal(JSON.stringify(list.body).includes(issued.body.token), false);
+  assert.equal(list.body.credentials.some(c => c.token_hash), false);
+  const own = await a.request('/api/me', { role: null, headers: { Authorization: 'Bearer ' + issued.body.token } });
+  assert.equal(own.body.member.id, created.body.id); assert.equal(own.body.balance, 0); assert.equal(own.body.receipts.length, 0);
+  await a.request('/api/credentials/' + issued.body.credential.id + '/revoke', { role: 'admin', method: 'POST', body: {} });
+  assert.equal((await a.request('/api/me', { role: null, headers: { Authorization: 'Bearer ' + issued.body.token } })).response.status, 401);
 });

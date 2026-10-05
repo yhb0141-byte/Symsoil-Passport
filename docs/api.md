@@ -12,6 +12,10 @@
 | `GET /api/me/export` | 成员 | 导出完整的本人成员记录与核验公钥 |
 | `POST /api/devices` | 成员 | 首次登记 P-256 公钥；不覆盖现有设备 |
 | `GET /api/admin` | 核定人 | 社区运营和审计记录 |
+| `POST /api/members` | 核定人 | 创建零起始积分的成员 |
+| `GET /api/credentials` | 核定人 | 入口元数据，不含凭证原文或哈希 |
+| `POST /api/credentials` | 核定人 | 签发限时角色入口；原文仅本次返回 |
+| `POST /api/credentials/:id/revoke` | 核定人 | 撤销入口；不能撤销最后一个有效核定人入口 |
 | `GET /api/terminal` | 终端或核定人 | 自身终端的兑换单、扣分及退回交付状态 |
 | `POST /api/contributions` | 核定人 | 核定贡献单 |
 | `POST /api/orders` | 终端或核定人 | 建立固定目录价格的兑换单 |
@@ -23,12 +27,20 @@
 | `POST /api/requests/:id/respond` | 本人成员 | 提交设备签名回复 |
 | `POST /api/requests/:id/cancel` | 本人成员 | 关闭未回复事项 |
 | `POST /api/requests/:id/revise` | 核定人 | 生成新版本；积分单不得改写 |
-| `POST /api/members/:id/revoke-device` | 核定人 | 停用旧设备和卡片入口，取消待回复事项 |
+| `POST /api/members/:id/revoke-device` | 核定人 | 停用旧设备、卡片与成员入口，取消待回复事项及未使用授权 |
 | `POST /api/orders/:id/fulfill` | 该单终端 | 扣分后登记交付 |
 | `POST /api/grants/:id/revoke` | 本人成员 | 撤销授权 |
 | `POST /api/grants/:id/execute` | 对应执行者 | 执行获准的精确单次行动 |
 
 核定人也可承担终端角色，但订单始终绑定创建时的角色主体。核定人的订单不能交给另一个终端身份操作；界面同时持有两种凭证时，创建、扫描和交付统一使用终端凭证。
+
+成员创建正文为 `{"name":"共创伙伴","id":"M-019"}`，可省略 `id` 自动生成。重复相同编号与名称返回已有成员，不重复创建账户；同一编号改成其他名称会拒绝。
+
+签发正文为 `{"role":"member","subject":"M-019","ttlHours":168,"label":"社区访问入口"}`。角色可为 `member`、`admin`、`terminal` 或 `agent`；成员必须已存在，小壤执行者主体固定 `xiaorang`。有效期1–720小时，默认168小时，小壤默认24小时。返回 `{"credential":{...元数据},"token":"...仅本次返回的访问凭证"}`。数据库只存 SHA-256 哈希，审计记录不存原文。
+
+核定人入口轮换应先签发并保存替代入口，验证新入口可用，再撤销原入口。失物换机会撤销该成员的所有访问凭证，旧凭证不能用新密钥重新进入；需核定人核对持有人后重新签发。
+
+`GET /api/terminal` 包含固定资源目录和本终端订单，订单给出是否扣分、退回中、已退回及交付状态，没有成员余额或私有回复历史。独立页面 `/operator.html` 使用这些入口，成员凭证不必交给终端。
 
 ## NFC 数据与积分流程
 

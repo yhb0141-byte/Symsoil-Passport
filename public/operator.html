@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#183d2e">
+  <title>社区运营 · 共壤 Passport</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/operator.css">
+  <script type="module" src="/operator.mjs"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">S<span></span></span><span>共壤 <small>Passport</small></span></a>
+    <div class="header-meta"><span>社区运营终端</span><button id="operator-logout" class="quiet" hidden>退出</button></div>
+  </header>
+  <main>
+    <section id="operator-login" class="login-panel">
+      <p class="eyebrow">分角色运营 · 本地社区</p>
+      <h1>把具体事项送到成员手里。</h1>
+      <p>核定贡献、准备兑换、发放成员入口和处理失物。每一笔积分仍由成员单独确认。</p>
+      <button id="operator-demo" class="primary" hidden>开启本地运营试用</button>
+      <form id="operator-access">
+        <label>入口角色<select name="role"><option value="admin">社区核定人</option><option value="terminal">兑换终端</option></select></label>
+        <label>角色访问凭证<input name="token" type="password" autocomplete="off" required></label>
+        <button class="secondary" type="submit">进入运营终端</button>
+      </form>
+      <a class="muted small" href="/">返回成员随身卡</a>
+    </section>
+    <div id="operator-workspace" hidden>
+      <section class="welcome"><div><p class="eyebrow" id="operator-role"></p><h1>社区协作的日常入口</h1></div><button id="operator-refresh" class="secondary">刷新记录</button></section>
+      <nav class="tabs" aria-label="运营功能">
+        <button data-operator-tab="exchange" aria-current="page">积分与兑换</button>
+        <button data-operator-tab="members" data-admin-only>成员与设备</button>
+        <button data-operator-tab="audit" data-admin-only>运营记录</button>
+      </nav>
+      <section id="exchange-operator-panel" class="operator-panel">
+        <div class="operator-layout">
+          <section class="surface">
+            <form id="operator-contribution" data-admin-only>
+              <h2>核定社区贡献</h2>
+              <label>贡献成员<select name="memberId" data-members></select></label>
+              <label>贡献事项<input name="title" required maxlength="300" placeholder="例如：菜园维护两小时"></label>
+              <label>积分数<input name="points" type="number" min="1" max="100" value="30" required></label>
+              <button type="submit" class="secondary">核定并准备这笔入账</button>
+            </form>
+            <form id="operator-order">
+              <h2>准备积分兑换</h2>
+              <label>社区资源<select name="itemId" id="operator-catalog"></select></label>
+              <button type="submit" class="secondary">新建兑换单</button>
+            </form>
+          </section>
+          <section class="surface nfc-terminal">
+            <p class="eyebrow">NFC · 成员单独确认</p><h2>读卡后发起这份事项。</h2>
+            <label>单据类型<select id="scan-kind"><option value="order">积分兑换</option><option value="contribution">贡献入账</option><option value="refund">原单退回</option></select></label>
+            <label>具体单据编号<input id="scan-source" maxlength="80" placeholder="新建单据后会自动填入"></label>
+            <button id="operator-nfc-read" class="primary">用 NFC 读取成员卡</button>
+            <details><summary>本地测试或读卡器接入</summary><form id="operator-manual-scan"><label>成员账户入口<input name="cardPayload" required autocomplete="off" placeholder="sp:1:…"></label><button type="submit" class="secondary">按此账户入口发送事项</button></form></details>
+            <p id="operator-nfc-status" class="muted small" aria-live="polite">碰卡只关联事项，不代表领取或扣除。</p>
+          </section>
+        </div>
+        <section class="surface"><div class="section-head"><h2>本终端的兑换与交付</h2><span class="muted small">其他终端的单据独立管理</span></div><div id="operator-orders"></div></section>
+      </section>
+      <section id="members-operator-panel" class="operator-panel" hidden>
+        <div class="operator-layout">
+          <section class="surface"><h2>加入一位成员</h2><form id="operator-member"><label>成员称呼<input name="name" required maxlength="100" placeholder="如何称呼这位伙伴"></label><label>成员编号（可自动生成）<input name="id" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9_-]*" placeholder="例如：M-019"></label><button type="submit" class="secondary">创建成员记录</button></form><p class="muted small">新成员起始积分为零。创建后在旁边签发独立访问入口。</p></section>
+          <section class="surface"><h2>签发角色入口</h2><form id="operator-credential">
+            <label>角色<select name="role" id="credential-role"><option value="member">成员</option><option value="terminal">兑换终端</option><option value="admin">社区核定人</option><option value="agent">小壤执行者</option></select></label>
+            <label id="member-subject-label">成员<select name="memberSubject" data-members></select></label>
+            <label id="other-subject-label" hidden>角色主体编号<input name="otherSubject" id="credential-subject" maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_-]*" placeholder="例如：tool-cabinet-02"></label>
+            <label>用途说明<input name="label" maxlength="100" value="社区访问入口" required></label>
+            <label>有效期（小时）<input name="ttlHours" type="number" min="1" max="720" value="168" required></label>
+            <button type="submit" class="secondary">签发独立入口</button>
+          </form></section>
+        </div>
+        <section id="issued-credential" class="surface" hidden><h2>请保存并交给对应持有人</h2><p id="issued-summary"></p><label>访问凭证（仅本次显示）<input id="issued-secret" type="password" readonly autocomplete="off"></label><div class="record-actions"><button id="copy-issued" class="secondary">复制访问凭证</button><button id="clear-issued" class="quiet">已保存，清除此处显示</button></div><p class="muted small">凭证列表只保存元数据，不能重新显示这串访问凭证。</p></section>
+        <section class="surface"><h2>成员与登记设备</h2><div id="operator-members"></div></section>
+        <section class="surface"><h2>入口有效期与撤销</h2><div id="operator-credentials" class="table-wrap"></div></section>
+      </section>
+      <section id="audit-operator-panel" class="operator-panel" hidden><section class="surface"><h2>最近的运营记录</h2><div id="operator-events" class="table-wrap"></div><p class="muted small">核定、签发、撤销和交付分别留痕。访问凭证原文不会进入记录。</p></section></section>
+    </div>
+    <p id="operator-notice" class="notice" role="status" aria-live="polite" hidden></p>
+    <dialog id="recovery-dialog">
+      <h2>停用遗失或旧设备</h2><p id="recovery-member"></p><p>旧设备、旧卡入口、该成员的访问凭证和未使用授权将停止。积分和历史回执保留。请核对持有人后重新签发成员入口，再登记新设备。</p>
+      <div class="record-actions"><button id="confirm-recovery" class="secondary">确认停用并准备换机</button><button id="cancel-recovery" class="quiet">返回</button></div>
+    </dialog>
+  </main>
+  <footer>共壤 Passport · 社区运营<span>NFC 账户入口与本人事项回复各自核验</span></footer>
+</body>
+</html>

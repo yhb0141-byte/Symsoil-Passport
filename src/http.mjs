@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
-import { authenticate } from './auth.mjs';
+import { authenticate, CredentialStore } from './auth.mjs';
 import { DomainError, requireCondition } from './errors.mjs';
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -22,6 +22,8 @@ async function readJSON(req) {
 
 export function createApp({ service, credentials, demo = false, publicDir, allowedHost = '127.0.0.1', publicOrigin = null }) {
   const root = resolve(publicDir);
+  const access = new CredentialStore(service.db, { clock: service.clock });
+  access.importBootstrap(credentials);
   function json(res, value, status = 200) { res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
   return createServer(async (req, res) => {
     try {
@@ -41,7 +43,7 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
         return json(res, Object.fromEntries(Object.entries(credentials).map(([role, entry]) => [role, entry.token])));
       }
       if (path.startsWith('/api/')) {
-        const auth = roles => authenticate(req.headers.authorization, credentials, roles);
+        const auth = roles => authenticate(req.headers.authorization, access, roles);
         const memberAuth = () => auth(['member']);
         const operatorAuth = () => auth(['admin', 'terminal']);
         if (path === '/api/me' && method === 'GET') return json(res, service.snapshot(memberAuth().subject));
@@ -53,6 +55,9 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
         }
         if (path === '/api/devices' && method === 'POST') { const actor = memberAuth(); return json(res, service.enroll(actor.subject, (await readJSON(req)).publicKey)); }
         if (path === '/api/admin' && method === 'GET') { auth(['admin']); return json(res, service.adminSnapshot()); }
+        if (path === '/api/members' && method === 'POST') { const actor = auth(['admin']); return json(res, service.createMember(actor.subject, await readJSON(req))); }
+        if (path === '/api/credentials' && method === 'GET') { auth(['admin']); return json(res, { credentials: access.list() }); }
+        if (path === '/api/credentials' && method === 'POST') { const actor = auth(['admin']); return json(res, access.issue(actor.subject, await readJSON(req))); }
         if (path === '/api/terminal' && method === 'GET') return json(res, service.terminalSnapshot(operatorAuth().subject));
         if (path === '/api/contributions' && method === 'POST') { const actor = auth(['admin']); return json(res, service.approveContribution(actor.subject, await readJSON(req))); }
         if (path === '/api/orders' && method === 'POST') { const actor = operatorAuth(); return json(res, service.createOrder(actor.subject, await readJSON(req))); }
@@ -60,6 +65,7 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
         if (path === '/api/nfc/scan' && method === 'POST') { const actor = operatorAuth(); return json(res, service.scan(actor.subject, await readJSON(req))); }
         if (path === '/api/requests' && method === 'POST') { const actor = auth(['admin']); return json(res, service.createStatement(actor.subject, await readJSON(req))); }
         let match;
+        if ((match = path.match(/^\/api\/credentials\/([^/]+)\/revoke$/)) && method === 'POST') { const actor = auth(['admin']); await readJSON(req); return json(res, access.revoke(actor.subject, match[1])); }
         if ((match = path.match(/^\/api\/requests\/([^/]+)$/)) && method === 'GET') return json(res, service.request(memberAuth().subject, match[1]));
         if ((match = path.match(/^\/api\/requests\/([^/]+)\/respond$/)) && method === 'POST') { const actor = memberAuth(); return json(res, service.respond(actor.subject, match[1], await readJSON(req))); }
         if ((match = path.match(/^\/api\/requests\/([^/]+)\/view$/)) && method === 'POST') { const actor = memberAuth(); await readJSON(req); return json(res, service.viewed(actor.subject, match[1])); }

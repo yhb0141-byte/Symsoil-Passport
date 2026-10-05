@@ -25,6 +25,18 @@ export class PassportService {
     requireCondition(row, 'MEMBER_INACTIVE', '成员不存在或已停用', 403); return row;
   }
   balance(memberId) { this.member(memberId); return this.one('SELECT balance FROM accounts WHERE member_id=?', memberId).balance; }
+  createMember(actor, input) {
+    const id = text(input.id || 'M-' + randomUUID(), '成员编号', 40), name = text(input.name, '成员名称', 100);
+    requireCondition(/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(id), 'INVALID_MEMBER_ID', '成员编号仅支持字母、数字、短横线或下划线', 400);
+    return this.atomic(() => {
+      const existing = this.one('SELECT * FROM members WHERE id=?', id);
+      if (existing) { requireCondition(existing.name === name && existing.active, 'MEMBER_CONFLICT', '成员编号已登记其他名称或已停用'); return existing; }
+      this.run('INSERT INTO members(id,name) VALUES(?,?)', id, name);
+      this.run('INSERT INTO accounts(member_id) VALUES(?)', id);
+      this.ensureCard(id); this.event(actor, 'member_created', id);
+      return this.member(id);
+    });
+  }
   seed({ openingPoints = 0 } = {}) {
     this.atomic(() => {
       this.run('INSERT OR IGNORE INTO members(id,name) VALUES(?,?)', DEMO_MEMBER, '菡白');
@@ -62,7 +74,9 @@ export class PassportService {
       this.member(memberId); this.run('UPDATE devices SET active=0 WHERE member_id=?', memberId);
       this.run('UPDATE cards SET active=0 WHERE member_id=?', memberId);
       this.run('UPDATE requests SET state=? WHERE member_id=? AND state=?', 'cancelled', memberId, 'pending');
-      this.event(actor, 'device_revoked', memberId); return this.ensureCard(memberId);
+      this.run('UPDATE grants SET revoked=1 WHERE member_id=? AND used=0', memberId);
+      this.run("UPDATE credentials SET active=0,revoked_at=? WHERE role='member' AND subject=? AND active=1", this.clock(), memberId);
+      this.event(actor, 'device_revoked', memberId, { unusedGrantsRevoked: true, memberCredentialsRevoked: true }); return this.ensureCard(memberId);
     });
   }
   approveContribution(actor, input) {
@@ -315,16 +329,17 @@ export class PassportService {
       catalog: this.all('SELECT * FROM catalog ORDER BY cost'), asset: this.one('SELECT * FROM assets WHERE id=?', 'garden-roster') };
   }
   adminSnapshot() {
-    return { members: this.all('SELECT id,name,active FROM members'), catalog: this.all('SELECT * FROM catalog ORDER BY cost'),
+    return { members: this.all('SELECT m.id,m.name,m.active,d.id AS deviceId FROM members m LEFT JOIN devices d ON d.member_id=m.id AND d.active=1'), catalog: this.all('SELECT * FROM catalog ORDER BY cost'),
       contributions: this.all('SELECT * FROM contributions ORDER BY approved_at DESC'), orders: this.all('SELECT * FROM orders ORDER BY rowid DESC'),
       refunds: this.all('SELECT * FROM refunds ORDER BY rowid DESC'), ledger: this.all('SELECT * FROM ledger ORDER BY rowid DESC LIMIT 100'),
       requests: this.all('SELECT * FROM requests ORDER BY rowid DESC LIMIT 100').map(unpackRequest),
       events: this.all('SELECT * FROM events ORDER BY id DESC LIMIT 100') };
   }
   terminalSnapshot(terminalId) {
-    return { orders: this.all(`SELECT o.*,c.name,
-      CASE WHEN l.id IS NULL THEN 0 ELSE 1 END AS paid,
-      EXISTS(SELECT 1 FROM ledger r WHERE r.original_entry=l.id) AS refunded
+    return { catalog: this.all('SELECT * FROM catalog ORDER BY cost'), orders: this.all(`SELECT o.*,c.name,
+      CASE WHEN l.id IS NULL THEN 0 ELSE 1 END AS paid, l.id AS transactionId,
+      EXISTS(SELECT 1 FROM ledger r WHERE r.original_entry=l.id) AS refunded,
+      EXISTS(SELECT 1 FROM refunds f WHERE f.original_entry=l.id) AS refundPending
       FROM orders o JOIN catalog c ON c.id=o.item_id
       LEFT JOIN ledger l ON l.source='order:'||o.id
       WHERE o.terminal_id=? ORDER BY o.rowid DESC LIMIT 100`, terminalId) };

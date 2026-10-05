@@ -82,7 +82,7 @@ function renderFulfillment() {
   const ready = orders.filter(o => o.member_id === data.member.id && o.paid);
   $('#fulfillment-list').innerHTML = ready.length ? ready.slice(0, 5).map(o => {
     const refunded = o.refunded;
-    return '<div class="record"><h3>' + escape(data.catalog.find(i => i.id === o.item_id)?.name) + '</h3><p>' + (refunded ? '积分已退回' : o.fulfilled ? '已交付' : '扣分完成，等待交付') + '</p>' + (!refunded && !o.fulfilled ? '<button class="secondary" data-fulfill="' + escape(o.id) + '">登记物品已交付</button>' : '') + '</div>';
+    return '<div class="record"><h3>' + escape(data.catalog.find(i => i.id === o.item_id)?.name) + '</h3><p>' + (refunded ? '积分已退回' : o.fulfilled ? '已交付' : o.refundPending ? '原单退回处理中' : '扣分完成，等待交付') + '</p>' + (!refunded && !o.refundPending && !o.fulfilled ? '<button class="secondary" data-fulfill="' + escape(o.id) + '">登记物品已交付</button>' : '') + '</div>';
   }).join('') : '<p class="empty">扣分成功后，才可登记对应兑换的交付结果。</p>';
   for (const button of $('#fulfillment-list').querySelectorAll('[data-fulfill]')) button.addEventListener('click', safely(async () => { await api('/api/orders/' + button.dataset.fulfill + '/fulfill', { role: 'terminal', method: 'POST', body: {} }); await refresh(); notify('物品交付已登记'); }));
 }
@@ -95,7 +95,13 @@ async function refresh() {
 }
 async function login(nextTokens) {
   tokens = nextTokens; data = await api('/api/me'); storageId = data.communityId + '/' + data.member.id;
-  const key = await deviceKey(storageId); await api('/api/devices', { method: 'POST', body: { publicKey: key.publicKey } });
+  let key = await deviceKey(storageId);
+  try { await api('/api/devices', { method: 'POST', body: { publicKey: key.publicKey } }); }
+  catch (error) {
+    if (error.code !== 'DEVICE_INACTIVE' || data.device) throw error;
+    key = await deviceKey(storageId, true);
+    await api('/api/devices', { method: 'POST', body: { publicKey: key.publicKey } });
+  }
   $('#login').hidden = true; $('#workspace').hidden = false; $('#logout').hidden = false;
   stage = 'home'; selected = 0; current = null; await refresh();
 }

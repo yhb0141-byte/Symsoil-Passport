@@ -1,0 +1,10 @@
+.operator-panel {display:grid;gap:20px;}
+.operator-panel .surface form h2 {margin-bottom:20px;}
+#operator-orders .record,#operator-members .record {display:flex;justify-content:space-between;gap:20px;align-items:center;}
+#operator-orders .record>div,#operator-members .record>div {min-width:0;overflow-wrap:anywhere;}
+#operator-orders .record-actions,#operator-members .record-actions {flex-shrink:0;margin-top:0;}
+#operator-credentials td {font-size:12px;overflow-wrap:anywhere;}
+#issued-secret {font-family:monospace;}
+dialog {max-width:500px;width:calc(100% - 32px);border:1px solid var(--line);border-radius:12px;padding:28px;background:var(--surface);color:var(--ink);}
+dialog::backdrop {background:rgb(0 0 0 / .35);}
+@media(max-width:720px){#operator-orders .record,#operator-members .record {flex-direction:column;align-items:stretch;gap:8px;}.operator-panel table {min-width:550px;}}
