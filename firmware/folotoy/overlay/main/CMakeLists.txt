@@ -4,6 +4,9 @@ idf_component_register(
          "passport_protocol.c"
          "passport_crypto_mbedtls.c"
          "passport_vectors.c"
+         "passport_outbox.c"
+         "passport_outbox_nvs.c"
+         "passport_transport.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp esp_timer mbedtls
+    REQUIRES bsp esp_timer mbedtls nvs_flash
 )
