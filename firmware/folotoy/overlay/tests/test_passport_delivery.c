@@ -8,6 +8,8 @@ static const char MEMBER_SIGNATURE_TEXT[] =
 static const uint8_t SERVICE_PUBLIC_X[PASSPORT_P256_COORD_SIZE] = { 0x11 };
 static const uint8_t SERVICE_PUBLIC_Y[PASSPORT_P256_COORD_SIZE] = { 0x22 };
 static const uint8_t SERVICE_SIGNATURE[PASSPORT_P256_P1363_SIZE] = { 0x33 };
+static const uint8_t ROOT_SIGNATURE[PASSPORT_P256_P1363_SIZE] = { 0x55 };
+static passport_trust_t service_trust;
 static char expected_service_message[PASSPORT_DELIVERY_RESULT_FRAME_MAX];
 static size_t expected_service_message_length;
 
@@ -20,6 +22,9 @@ bool passport_p256_verify_p1363(
     size_t message_length,
     const uint8_t signature[PASSPORT_P256_P1363_SIZE])
 {
+    if (public_x[0] == 0x44 && public_y[0] == 0x66 &&
+        memcmp(signature, ROOT_SIGNATURE, sizeof(ROOT_SIGNATURE)) == 0 &&
+        message_length >= 89 && memcmp(message, "symsoil-trust/1\0", 16) == 0) return true;
     return memcmp(public_x, SERVICE_PUBLIC_X, sizeof(SERVICE_PUBLIC_X)) == 0 &&
         memcmp(public_y, SERVICE_PUBLIC_Y, sizeof(SERVICE_PUBLIC_Y)) == 0 &&
         memcmp(signature, SERVICE_SIGNATURE, sizeof(SERVICE_SIGNATURE)) == 0 &&
@@ -72,6 +77,15 @@ static passport_outbox_store_t store_for(memory_store_t *memory)
     };
 }
 
+static void configure_service(const uint8_t *x, uint32_t epoch)
+{
+    passport_trust_manifest_t manifest = { .community_id = "synthetic-community",
+        .epoch = epoch, .state = PASSPORT_TRUST_ACTIVE };
+    memcpy(manifest.service_public_x, x, 32);
+    memcpy(manifest.service_public_y, SERVICE_PUBLIC_Y, 32);
+    assert(passport_trust_apply(&service_trust, &manifest, ROOT_SIGNATURE, true) == PASSPORT_TRUST_OK);
+}
+
 static void member_signature(uint8_t output[PASSPORT_OUTBOX_SIGNATURE_SIZE])
 {
     size_t length = 0;
@@ -105,8 +119,7 @@ static passport_delivery_result_t finalize_signed(
     const passport_delivery_result_frame_t *result)
 {
     return passport_delivery_finalize_signed(delivery, result,
-        "synthetic-community", SERVICE_PUBLIC_X, SERVICE_PUBLIC_Y,
-        SERVICE_SIGNATURE);
+        &service_trust, SERVICE_SIGNATURE);
 }
 
 static void finish_packets(passport_delivery_t *delivery)
@@ -192,7 +205,7 @@ static void test_reboot_and_final_result(void)
     assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_BAD_DATA);
     result = result_frame(transfer_id, "accepted");
     result.community_id = "other-community";
-    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_MISMATCH);
+    assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
     result = result_frame(transfer_id, "accepted");
     result.request_id = "changed-request";
     assert(finalize_signed(&rebooted, &result) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
@@ -208,14 +221,14 @@ static void test_reboot_and_final_result(void)
     memcpy(wrong_service_signature, SERVICE_SIGNATURE, sizeof(wrong_service_signature));
     wrong_service_signature[0] ^= 1;
     assert(passport_delivery_finalize_signed(&rebooted, &result,
-        "synthetic-community", SERVICE_PUBLIC_X, SERVICE_PUBLIC_Y,
-        wrong_service_signature) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+        &service_trust, wrong_service_signature) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
     uint8_t wrong_public_x[PASSPORT_P256_COORD_SIZE];
     memcpy(wrong_public_x, SERVICE_PUBLIC_X, sizeof(wrong_public_x));
     wrong_public_x[0] ^= 1;
+    configure_service(wrong_public_x, 2);
     assert(passport_delivery_finalize_signed(&rebooted, &result,
-        "synthetic-community", wrong_public_x, SERVICE_PUBLIC_Y,
-        SERVICE_SIGNATURE) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+        &service_trust, SERVICE_SIGNATURE) == PASSPORT_DELIVERY_UNTRUSTED_RESULT);
+    configure_service(SERVICE_PUBLIC_X, 3);
     assert(passport_outbox_load(&store, &still_pending) == PASSPORT_OUTBOX_READY);
 
     // A matching final rejection is authoritative too: it closes this exact
@@ -321,6 +334,12 @@ static void test_storage_faults(void)
 
 int main(void)
 {
+    memory_store_t trust_memory = { 0 };
+    passport_outbox_store_t trust_store = store_for(&trust_memory);
+    passport_trust_root_t root = { .community_id = "synthetic-community",
+        .public_x = { 0x44 }, .public_y = { 0x66 } };
+    assert(passport_trust_open(&service_trust, &trust_store, &root) == PASSPORT_TRUST_EMPTY);
+    configure_service(SERVICE_PUBLIC_X, 1);
     test_reboot_and_final_result();
     test_busy_exhaustion_and_recovery();
     test_storage_faults();

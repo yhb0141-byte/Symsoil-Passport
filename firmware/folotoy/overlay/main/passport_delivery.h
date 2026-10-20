@@ -4,6 +4,7 @@
 #include "passport_outbox.h"
 #include "passport_protocol.h"
 #include "passport_transport.h"
+#include "passport_trust.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -79,13 +80,11 @@ passport_delivery_state_t passport_delivery_reconnect(passport_delivery_t *deliv
 passport_delivery_result_t passport_delivery_retry(passport_delivery_t *delivery);
 
 // Packet ACKs only prove fragment delivery and never clear the journal. The
-// signed result must use the pinned service key for trusted_community_id and
+// signed result must use the currently active key selected by the trust store and
 // bind the pending transfer ID and exact public member signature. The caller
-// supplies decoded P-256 coordinates and a 64-byte P1363 service signature.
+// supplies only the signed result. A remote peer cannot choose its verifier key.
 passport_delivery_result_t passport_delivery_finalize_signed(
     passport_delivery_t *delivery,
     const passport_delivery_result_frame_t *result,
-    const char *trusted_community_id,
-    const uint8_t service_public_x[PASSPORT_P256_COORD_SIZE],
-    const uint8_t service_public_y[PASSPORT_P256_COORD_SIZE],
+    passport_trust_t *trust,
     const uint8_t service_signature[PASSPORT_P256_P1363_SIZE]);

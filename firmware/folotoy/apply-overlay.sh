@@ -38,6 +38,8 @@ install -m 0644 "${root}/overlay/main/passport_transport.c" "${target}/main/pass
 install -m 0644 "${root}/overlay/main/passport_transport.h" "${target}/main/passport_transport.h"
 install -m 0644 "${root}/overlay/main/passport_delivery.c" "${target}/main/passport_delivery.c"
 install -m 0644 "${root}/overlay/main/passport_delivery.h" "${target}/main/passport_delivery.h"
+install -m 0644 "${root}/overlay/main/passport_trust.c" "${target}/main/passport_trust.c"
+install -m 0644 "${root}/overlay/main/passport_trust.h" "${target}/main/passport_trust.h"
 install -m 0644 "${root}/overlay/tests/test_passport_core.c" "${target}/tests/test_passport_core.c"
 install -m 0644 "${root}/overlay/tests/test_passport_outbox.c" "${target}/tests/test_passport_outbox.c"
 install -m 0644 "${root}/overlay/tests/test_passport_delivery.c" "${target}/tests/test_passport_delivery.c"

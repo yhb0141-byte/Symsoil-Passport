@@ -146,19 +146,23 @@ passport_delivery_result_t passport_delivery_retry(passport_delivery_t *delivery
 passport_delivery_result_t passport_delivery_finalize_signed(
     passport_delivery_t *delivery,
     const passport_delivery_result_frame_t *result,
-    const char *trusted_community_id,
-    const uint8_t service_public_x[PASSPORT_P256_COORD_SIZE],
-    const uint8_t service_public_y[PASSPORT_P256_COORD_SIZE],
+    passport_trust_t *trust,
     const uint8_t service_signature[PASSPORT_P256_P1363_SIZE])
 {
-    if (!delivery || !result || !trusted_community_id || !service_public_x ||
-        !service_public_y || !service_signature) {
+    if (!delivery || !result || !trust || !service_signature) {
         return PASSPORT_DELIVERY_BAD_ARGUMENT;
     }
     if (delivery->state == PASSPORT_DELIVERY_IDLE) return PASSPORT_DELIVERY_EMPTY;
-    if (!result->community_id || strcmp(result->community_id, trusted_community_id) != 0 ||
-        result->transfer_id != delivery->pending.transfer_id) {
+    if (!result->community_id || result->transfer_id != delivery->pending.transfer_id) {
         return PASSPORT_DELIVERY_MISMATCH;
+    }
+
+    uint8_t service_public_x[PASSPORT_P256_COORD_SIZE];
+    uint8_t service_public_y[PASSPORT_P256_COORD_SIZE];
+    uint32_t trust_epoch = 0;
+    if (passport_trust_get_service(trust, result->community_id,
+            service_public_x, service_public_y, &trust_epoch) != PASSPORT_TRUST_OK) {
+        return PASSPORT_DELIVERY_UNTRUSTED_RESULT;
     }
 
     uint8_t reply_signature[PASSPORT_OUTBOX_SIGNATURE_SIZE];

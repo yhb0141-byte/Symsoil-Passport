@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Install OpenSSL host-test headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev
       - run: npm run check
       - run: npm test
       - run: npm run test:firmware-host

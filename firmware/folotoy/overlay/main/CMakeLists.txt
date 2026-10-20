@@ -8,6 +8,7 @@ idf_component_register(
          "passport_outbox_nvs.c"
          "passport_transport.c"
          "passport_delivery.c"
+         "passport_trust.c"
     INCLUDE_DIRS "."
     REQUIRES bsp esp_timer mbedtls nvs_flash
 )

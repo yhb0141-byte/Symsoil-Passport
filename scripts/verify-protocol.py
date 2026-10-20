@@ -5,6 +5,8 @@ Optional development dependency: cryptography. Not imported by the application.
 import base64
 import hashlib
 import json
+import re
+import struct
 import sys
 from pathlib import Path
 
@@ -129,10 +131,54 @@ def verify_delivery(document):
     return 1
 
 
+def verify_trust(document):
+    if document["protocol"] != "symsoil-trust/1" or document.get("synthetic") is not True:
+        raise ValueError("Expected synthetic trust vectors")
+    jwk = document["authorityPublicKey"]
+    if jwk["kty"] != "EC" or jwk["crv"] != "P-256" or "d" in jwk:
+        raise ValueError("Expected public P-256 authority")
+    key = ec.EllipticCurvePublicNumbers(int.from_bytes(decode(jwk["x"]), "big"),
+        int.from_bytes(decode(jwk["y"]), "big"), ec.SECP256R1()).public_key()
+    for bundle in document["bundles"]:
+        community = bundle["communityId"]
+        if not re.fullmatch(r"[A-Za-z0-9:_-]{1,64}", community):
+            raise ValueError("Invalid community")
+        if bundle["authorityPublicKey"] != jwk or not 1 <= bundle["epoch"] <= 0xffffffff:
+            raise ValueError("Authority or epoch mismatch")
+        if bundle["state"] == "active":
+            status = 1
+            service = bundle["servicePublicKey"]
+            if "d" in service or service["crv"] != "P-256":
+                raise ValueError("Expected public service key")
+            coordinates = decode(service["x"]) + decode(service["y"])
+        elif bundle["state"] == "suspended" and bundle["servicePublicKey"] is None:
+            status, coordinates = 2, bytes(64)
+        else:
+            raise ValueError("Invalid state")
+        frame = b"symsoil-trust/1\x00" + bytes([status, len(community), 0, 0]) + struct.pack("<I", bundle["epoch"]) + community.encode("ascii") + coordinates
+        if len(coordinates) != 64 or frame.hex() != bundle["frameHex"]:
+            raise ValueError("Trust frame mismatch")
+        signature = decode(bundle["signature"])
+        if len(signature) != 64:
+            raise ValueError("Invalid trust signature length")
+        der = encode_dss_signature(int.from_bytes(signature[:32], "big"), int.from_bytes(signature[32:], "big"))
+        key.verify(der, frame, ec.ECDSA(hashes.SHA256()))
+        changed = bytearray(frame)
+        changed[20] ^= 1
+        try:
+            key.verify(der, bytes(changed), ec.ECDSA(hashes.SHA256()))
+        except InvalidSignature:
+            pass
+        else:
+            raise ValueError("Modified trust epoch unexpectedly verified")
+    return len(document["bundles"])
+
+
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
     filename = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "firmware/protocol-vectors/confirmation-v1.json"
     delivery_filename = Path(sys.argv[2]) if len(sys.argv) > 2 else root / "firmware/protocol-vectors/delivery-result-v1.json"
     count = verify(json.loads(filename.read_text(encoding="utf-8")))
     delivery_count = verify_delivery(json.loads(delivery_filename.read_text(encoding="utf-8")))
-    print(f"Independent Python verification passed: {count} confirmation vectors, {delivery_count} delivery-result vector and UTF-16/UTF-8 serializer cases.")
+    trust_count = verify_trust(json.loads((root / "firmware/protocol-vectors/trust-v1.json").read_text(encoding="utf-8")))
+    print(f"Independent Python verification passed: {count} confirmation vectors, {delivery_count} delivery-result vector, {trust_count} trust vectors and UTF-16/UTF-8 serializer cases.")
