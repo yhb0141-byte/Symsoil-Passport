@@ -9,11 +9,11 @@ static bool fresh(passport_review_t *r, uint64_t now)
 {
     if (!r || r->state == PASSPORT_REVIEW_CLOSED ||
         r->state == PASSPORT_REVIEW_CONSUMED) return false;
-    if (now >= r->deadline_ms || (r->sampled && now < r->last_sample_ms)) {
+    if (now >= r->deadline_ms || (r->sampled && now < r->last_event_ms)) {
         passport_review_cancel(r);
         return false;
     }
-    r->last_sample_ms = now;
+    r->last_event_ms = now;
     r->sampled = true;
     return true;
 }
@@ -64,7 +64,7 @@ bool passport_review_open(passport_review_t *r, passport_kind_t kind,
     r->kind = kind;
     r->page_count = pages;
     r->deadline_ms = deadline;
-    r->last_sample_ms = now;
+    r->last_event_ms = now;
     r->sampled = true;
     r->state = PASSPORT_REVIEW_READING;
     return true;
@@ -86,26 +86,29 @@ bool passport_review_choose(passport_review_t *r, size_t choice, uint64_t now)
     const char *decision = passport_decision(r->kind, choice);
     if (!decision) return false;
     r->frame.decision = decision;
+    r->chosen = true;
     r->state = PASSPORT_REVIEW_CHOOSING;
-    r->holding = r->released = false;
+    r->holding = r->released = r->key_sampled = false;
     return true;
 }
 bool passport_review_final(passport_review_t *r, uint64_t now)
 {
-    if (!fresh(r, now) || r->state != PASSPORT_REVIEW_CHOOSING) return false;
+    if (!fresh(r, now) || r->state != PASSPORT_REVIEW_CHOOSING || !r->chosen) return false;
     r->state = PASSPORT_REVIEW_FINAL;
-    r->holding = r->released = false;
+    r->holding = r->released = r->key_sampled = false;
     return true;
 }
 passport_sign_result_t passport_review_sample(passport_review_t *r,
     unsigned keys, uint64_t now, passport_signer_t *signer, uint32_t transfer)
 {
     if (!r) return PASSPORT_SIGN_INVALID;
-    uint64_t previous = r->last_sample_ms;
+    uint64_t previous = r->last_key_ms;
     if (!fresh(r, now) || r->state != PASSPORT_REVIEW_FINAL) return PASSPORT_SIGN_INVALID;
-    if (now - previous > PASSPORT_REVIEW_SAMPLE_GAP_MS) {
+    if (!r->key_sampled || now - previous > PASSPORT_REVIEW_SAMPLE_GAP_MS) {
         r->holding = r->released = false;
     }
+    r->last_key_ms = now;
+    r->key_sampled = true;
     if (!keys) {
         r->released = true;
         r->holding = false;

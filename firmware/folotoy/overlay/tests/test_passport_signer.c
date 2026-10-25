@@ -119,6 +119,10 @@ static void test_review(provider_t *p, passport_sign_provider_t *provider, const
         for (size_t choice = 0; choice < passport_decision_count(kind); ++choice) {
             assert(passport_review_open(&r, kind, &f, request, sizeof(request)-1, 1, 5000, 0));
             assert(passport_review_read_page(&r, 0, 0));
+            // Full reading alone never selects the first (possibly approving) reply.
+            assert(!passport_review_final(&r, 0));
+            assert(!passport_review_choose(&r, passport_decision_count(kind), 0));
+            assert(!passport_review_final(&r, 0));
             assert(passport_review_choose(&r, choice, 0));
             assert(strcmp(r.frame.decision, passport_decision(kind, choice)) == 0);
             assert(!passport_review_choose(&r, passport_decision_count(kind), 0));
@@ -128,6 +132,33 @@ static void test_review(provider_t *p, passport_sign_provider_t *provider, const
     request[0] ^= 1;
     assert(!passport_review_open(&r, PASSPORT_KIND_GRANT, &f, request, sizeof(request)-1, 1, 100, 0));
     request[0] ^= 1;
+    ready_review(&r, &f, request, sizeof(request)-1, 0);
+    // Rejected navigation events are not physical samples. Previously they
+    // refreshed last_sample_ms and hid a >250ms loss of the key input stream.
+    assert(passport_review_sample(&r, 0, 0, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 1, 100, &signer, 21) == PASSPORT_SIGN_INVALID);
+    for (uint64_t t=200; t<=2100; t+=100) {
+        assert(!passport_review_read_page(&r, 0, t));
+        assert(!passport_review_final(&r, t));
+        assert(!passport_review_choose(&r, 99, t));
+    }
+    assert(passport_review_sample(&r, 1, 2100, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(p->calls == 0 && counter.last_reserved == 0 && !signer.staged);
+    assert(!r.holding && !r.released);
+    for (uint64_t t=2200; t<=4300; t+=100)
+        assert(passport_review_sample(&r, 1, t, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(p->calls == 0 && counter.last_reserved == 0);
+    // Exactly 250ms is allowed; unrelated events cannot extend that limit.
+    assert(passport_review_sample(&r, 0, 4400, &signer, 21) == PASSPORT_SIGN_INVALID);
+    for (uint64_t t=4650; t<6650; t+=250) {
+        assert(!passport_review_read_page(&r, 0, t-1));
+        assert(passport_review_sample(&r, 1, t, &signer, 21) == PASSPORT_SIGN_INVALID);
+        assert(r.holding);
+    }
+    // A 251ms gap cancels even if navigation happened one millisecond earlier.
+    assert(!passport_review_final(&r, 6650));
+    assert(passport_review_sample(&r, 1, 6651, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(!r.holding && !r.released && p->calls == 0);
     ready_review(&r, &f, request, sizeof(request)-1, 0);
     // Holding OK before arrival cannot carry across the final-page boundary.
     for (uint64_t t=0; t<=2200; t+=100)

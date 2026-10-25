@@ -18,8 +18,8 @@ typedef struct {
     char fields[PASSPORT_CONFIRMATION_FRAME_MAX + 1];
     uint8_t request[PASSPORT_REVIEW_REQUEST_MAX];
     size_t request_length, page_count, pages_read;
-    uint64_t deadline_ms, last_sample_ms, hold_start_ms;
-    bool sampled, released, holding;
+    uint64_t deadline_ms, last_event_ms, last_key_ms, hold_start_ms;
+    bool sampled, released, holding, chosen, key_sampled;
 } passport_review_t;
 
 // Trusted, serialized local UI only. Not a BLE endpoint or proof of hardware
@@ -34,6 +34,7 @@ void passport_review_cancel(passport_review_t *review);
 // Call only after local user advances past the fully rendered current page.
 bool passport_review_read_page(passport_review_t *review, size_t page, uint64_t now_ms);
 bool passport_review_choose(passport_review_t *review, size_t choice, uint64_t now_ms);
+// Requires an explicit successful choose; reading never selects a reply.
 // After rendering final identity/decision/expiry summary, enter final page.
 bool passport_review_final(passport_review_t *review, uint64_t now_ms);
 // Poll physical debounced key state <=250ms, including while idle; 0=none,
