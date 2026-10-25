@@ -21,7 +21,8 @@ passport_receiver_state_t passport_receiver_open(passport_receiver_t *r,
         packet_size > PASSPORT_TRANSPORT_PACKET_MAX || !timeout_ms ||
         timeout_ms > PASSPORT_RECEIVER_TIMEOUT_MAX_MS) return PASSPORT_RECEIVER_BAD_ARGUMENT;
     if (r->state == PASSPORT_RECEIVER_READY || r->state == PASSPORT_RECEIVER_PARTIAL ||
-        r->state == PASSPORT_RECEIVER_COMPLETE) return PASSPORT_RECEIVER_BAD_ARGUMENT;
+        r->state == PASSPORT_RECEIVER_COMPLETE || r->state == PASSPORT_RECEIVER_CONSUMED)
+        return PASSPORT_RECEIVER_BAD_ARGUMENT;
     passport_receiver_close(r);
     r->session = session;
     r->packet_size = packet_size;
@@ -46,7 +47,7 @@ passport_receiver_state_t passport_receiver_receive(passport_receiver_t *r,
 {
     passport_receiver_state_t state = passport_receiver_tick(r, session, now_ms);
     if (state != PASSPORT_RECEIVER_READY && state != PASSPORT_RECEIVER_PARTIAL &&
-        state != PASSPORT_RECEIVER_COMPLETE) return state;
+        state != PASSPORT_RECEIVER_COMPLETE && state != PASSPORT_RECEIVER_CONSUMED) return state;
     passport_transport_packet_t p;
     if (!packet || length > r->packet_size || !passport_transport_parse(packet, length, &p) ||
         !p.payload_length) return fail(r, PASSPORT_RECEIVER_REJECTED);
@@ -67,7 +68,7 @@ passport_receiver_state_t passport_receiver_receive(passport_receiver_t *r,
             return fail(r, PASSPORT_RECEIVER_REJECTED);
         }
     }
-    if (state == PASSPORT_RECEIVER_COMPLETE || p.chunk_index != r->next_chunk ||
+    if (state == PASSPORT_RECEIVER_COMPLETE || state == PASSPORT_RECEIVER_CONSUMED || p.chunk_index != r->next_chunk ||
         p.payload_length > PASSPORT_RECEIVER_MESSAGE_MAX - r->length)
         return fail(r, PASSPORT_RECEIVER_REJECTED);
     r->transfer_id = p.transfer_id;
@@ -90,6 +91,14 @@ bool passport_receiver_take(passport_receiver_t *r, uint64_t session,
     memcpy(output, r->message, r->length);
     *length = r->length;
     *transfer_id = r->transfer_id;
-    passport_receiver_close(r);
+    // Retain only the exact final payload for lost-final-ACK retries. Header
+    // identity/shape is reconstructed and checked above; CRC is never an identity
+    // proof. A single-fragment message retains its entire payload until expiry;
+    // CONSUMED cannot be taken again.
+    memmove(r->message, r->message + r->last_offset, r->last_length);
+    memset(r->message + r->last_length, 0, sizeof(r->message) - r->last_length);
+    r->length = 0;
+    r->last_offset = 0;
+    r->state = PASSPORT_RECEIVER_CONSUMED;
     return true;
 }

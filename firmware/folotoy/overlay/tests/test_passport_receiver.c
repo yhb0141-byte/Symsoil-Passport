@@ -54,8 +54,21 @@ static void round_trip(size_t length, size_t packet_size)
     uint32_t id;
     assert(passport_receiver_take(&rx, 100, 1004, output, sizeof(output), &total, &id));
     assert(total == length && id == 27 && memcmp(output, source, length) == 0);
-    wiped();
+    assert(rx.state == PASSPORT_RECEIVER_CONSUMED && rx.length == 0);
+    for (size_t i = rx.last_length; i < sizeof(rx.message); i++) assert(rx.message[i] == 0);
     assert(!passport_receiver_take(&rx, 100, 1005, output, sizeof(output), &total, &id));
+    assert(total == 0 && id == 0);
+    // Application already consumed the message, but sender lost the final ACK.
+    assert(passport_transport_begin(&tx, source, length, 27, packet_size, 3) == PASSPORT_TRANSPORT_READY);
+    tx.chunk_index = tx.chunk_count - 1;
+    size_t n = next();
+    assert(passport_receiver_receive(&rx, 100, packet, n, 1006) == PASSPORT_RECEIVER_DUPLICATE);
+    ack(); assert(tx.state == PASSPORT_TRANSPORT_COMPLETE);
+    assert(rx.state == PASSPORT_RECEIVER_CONSUMED);
+    assert(passport_receiver_open(&rx, 200, packet_size, 1007, 5000) == PASSPORT_RECEIVER_BAD_ARGUMENT);
+    assert(passport_receiver_receive(&rx, 99, packet, n, 1008) == PASSPORT_RECEIVER_STALE_SESSION);
+    assert(passport_receiver_receive(&rx, 100, packet, n, 5999) == PASSPORT_RECEIVER_DUPLICATE);
+    assert(passport_receiver_tick(&rx, 100, 6000) == PASSPORT_RECEIVER_EXPIRED); wiped();
 }
 int main(void)
 {
@@ -63,6 +76,40 @@ int main(void)
     // MTU-23 ATT value (20 bytes), large negotiated value, exact bound and
     // partial final chunks all round-trip with the existing real sender.
     round_trip(1, 20); round_trip(4096, 20); round_trip(4095, 512); round_trip(4096, 512);
+    // Consumed tombstones reject changed payload (valid CRC), transfer ID,
+    // chunk count, earlier fragments and damaged packets; none redeliver.
+    for (unsigned fault = 0; fault < 5; fault++) {
+        begin(40, 32);
+        while (tx.state != PASSPORT_TRANSPORT_COMPLETE) {
+            size_t n = next();
+            passport_receiver_receive(&rx, 100, packet, n, 1001); ack();
+        }
+        size_t length; uint32_t id;
+        assert(passport_receiver_take(&rx, 100, 1002, output, sizeof(output), &length, &id));
+        passport_transport_begin(&tx, source, 40, 27, 32, 3);
+        tx.chunk_index = tx.chunk_count - 1;
+        if (fault == 0) source[39] ^= 1;
+        if (fault == 1) tx.transfer_id++;
+        if (fault == 2) tx.chunk_count++;
+        if (fault == 3) tx.chunk_index = 0;
+        size_t n = next();
+        if (fault == 0) source[39] ^= 1;
+        if (fault == 4) packet[n - 1] ^= 1;
+        assert(passport_receiver_receive(&rx, 100, packet, n, 1003) == PASSPORT_RECEIVER_REJECTED); wiped();
+        assert(!passport_receiver_take(&rx, 100, 1004, output, sizeof(output), &length, &id));
+    }
+    begin(1, 32); size_t close_n = next();
+    passport_receiver_receive(&rx, 100, packet, close_n, 1001);
+    size_t close_length; uint32_t close_id;
+    assert(passport_receiver_take(&rx, 100, 1002, output, sizeof(output), &close_length, &close_id));
+    assert(passport_receiver_tick(&rx, 100, 1001) == PASSPORT_RECEIVER_EXPIRED); wiped();
+    begin(1, 32); close_n = next();
+    passport_receiver_receive(&rx, 100, packet, close_n, 1001);
+    assert(passport_receiver_take(&rx, 100, 1002, output, sizeof(output), &close_length, &close_id));
+    passport_receiver_close(&rx); wiped();
+    assert(passport_receiver_open(&rx, 200, 32, 1003, 5000) == PASSPORT_RECEIVER_READY);
+    assert(passport_receiver_receive(&rx, 100, packet, close_n, 1004) == PASSPORT_RECEIVER_STALE_SESSION);
+    assert(rx.state == PASSPORT_RECEIVER_READY);
     begin(40, 32);
     size_t n = next(); memcpy(saved, packet, n);
     assert(passport_receiver_receive(&rx, 99, packet, n, 1001) == PASSPORT_RECEIVER_STALE_SESSION);

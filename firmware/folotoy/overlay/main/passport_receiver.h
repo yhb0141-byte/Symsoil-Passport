@@ -17,6 +17,7 @@ typedef enum {
     PASSPORT_RECEIVER_STALE_SESSION,
     PASSPORT_RECEIVER_DUPLICATE,
     PASSPORT_RECEIVER_BAD_ARGUMENT,
+    PASSPORT_RECEIVER_CONSUMED,
 } passport_receiver_state_t;
 
 typedef struct {
@@ -44,7 +45,9 @@ passport_receiver_state_t passport_receiver_receive(passport_receiver_t *receive
 passport_receiver_state_t passport_receiver_tick(passport_receiver_t *receiver,
     uint64_t session, uint64_t now_ms);
 // Copy out only a complete, unexpired message. Insufficient capacity preserves
-// it until the same deadline. Success consumes the session and wipes RAM.
+// it until the same deadline. Success wipes the body except the final fragment,
+// retaining a CONSUMED tombstone until the original deadline or local close.
+// Only identical final-fragment retries can be ACKed; take cannot deliver twice.
 bool passport_receiver_take(passport_receiver_t *receiver, uint64_t session,
     uint64_t now_ms, uint8_t *output, size_t capacity, size_t *length,
     uint32_t *transfer_id);
