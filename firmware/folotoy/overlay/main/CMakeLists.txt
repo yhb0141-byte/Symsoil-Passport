@@ -10,6 +10,7 @@ idf_component_register(
          "passport_delivery.c"
          "passport_trust.c"
          "passport_provision.c"
+         "passport_signer.c"
     INCLUDE_DIRS "."
     REQUIRES bsp esp_timer mbedtls nvs_flash
 )
