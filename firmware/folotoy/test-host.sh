@@ -87,4 +87,11 @@ node "${root}/../../scripts/delivery-live-fixture-header.mjs" > "${crypto_direct
     "${root}/overlay/main/passport_transport.c" \
     -lcrypto -o "${crypto_directory}/signer-test"
 "${crypto_directory}/signer-test"
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+    -I"${root}/overlay/main" \
+    "${root}/overlay/tests/test_passport_receiver.c" \
+    "${root}/overlay/main/passport_receiver.c" \
+    "${root}/overlay/main/passport_transport.c" \
+    -o "${crypto_directory}/receiver-test"
+"${crypto_directory}/receiver-test"
 echo "FoloToy Passport host tests: PASS"

@@ -52,4 +52,7 @@ install -m 0644 "${root}/overlay/tests/test_passport_delivery.c" "${target}/test
 install -m 0644 "${root}/overlay/main/passport_review.c" "${target}/main/passport_review.c"
 install -m 0644 "${root}/overlay/main/passport_review.h" "${target}/main/passport_review.h"
 
+install -m 0644 "${root}/overlay/main/passport_receiver.c" "${target}/main/passport_receiver.c"
+install -m 0644 "${root}/overlay/main/passport_receiver.h" "${target}/main/passport_receiver.h"
+
 echo "Applied Symsoil Passport hardware acceptance overlay to ${target}."
