@@ -278,6 +278,26 @@ export class PassportService {
       transaction: this.one('SELECT * FROM ledger WHERE receipt_id=?', receiptId) || null,
       grant: unpackGrant(this.one('SELECT * FROM grants WHERE receipt_id=?', receiptId)) || null };
   }
+  deliveryReceipt(memberId, requestId, signature) {
+    const request = this.request(memberId, requestId);
+    requireCondition(typeof signature === 'string' && /^[A-Za-z0-9_-]{86}$/.test(signature) &&
+      Buffer.from(signature, 'base64url').toString('base64url') === signature,
+    'INVALID_SIGNATURE', '须提供原始确认签名', 400);
+    const receipt = this.one('SELECT * FROM receipts WHERE request_id=? AND member_id=?', requestId, memberId);
+    requireCondition(receipt, 'RESULT_NOT_RECORDED', '尚未找到已受理回执，请继续核对原提交');
+    requireCondition(receipt.signature === signature, 'RECEIPT_MISMATCH', '签名与已受理的原回执不一致');
+    // Historical device keys remain valid evidence even after replacement.
+    // This lookup never reenables the device or reexecutes its old decision.
+    const device = this.one('SELECT * FROM devices WHERE id=? AND member_id=?', receipt.device_id, memberId);
+    let valid = false;
+    try {
+      const frame = confirmationFrame(request, receipt.device_id, receipt.decision, JSON.parse(receipt.frame).counter);
+      valid = device && canonical(frame) === receipt.frame &&
+        verifyConfirmation(JSON.parse(device.public_key), frame, receipt.signature);
+    } catch { /* A damaged persisted receipt must never receive a service signature. */ }
+    requireCondition(valid, 'RECEIPT_INVALID', '原回执校验失败，未生成结果签名');
+    return receipt;
+  }
   fulfill(terminalId, orderId) {
     return this.atomic(() => {
       const order = this.one('SELECT * FROM orders WHERE id=? AND terminal_id=?', orderId, terminalId);

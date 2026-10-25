@@ -21,7 +21,7 @@ async function readJSON(req) {
   catch (error) { if (error instanceof DomainError) throw error; throw new DomainError('INVALID_JSON', 'JSON 格式无效', 400); }
 }
 
-export function createApp({ service, credentials, demo = false, publicDir, allowedHost = '127.0.0.1', publicOrigin = null }) {
+export function createApp({ service, credentials, demo = false, publicDir, allowedHost = '127.0.0.1', publicOrigin = null, deliverySigner = null }) {
   const root = resolve(publicDir);
   const access = new CredentialStore(service.db, { clock: service.clock });
   access.importBootstrap(credentials);
@@ -37,7 +37,8 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
       if (req.headers.origin) requireCondition(req.headers.origin === (publicOrigin || origin), 'CROSS_ORIGIN', '仅接受同源请求', 403);
       if (req.headers['sec-fetch-site']) requireCondition(req.headers['sec-fetch-site'] !== 'cross-site', 'CROSS_ORIGIN', '不接受跨站请求', 403);
       const path = url.pathname, method = req.method;
-      if (path === '/api/config' && method === 'GET') return json(res, { demo, community: '九华共壤社区', protocol: 'symsoil-passport/1', serverTime: service.clock() });
+      if (path === '/api/config' && method === 'GET') return json(res, { demo, community: '九华共壤社区', protocol: 'symsoil-passport/1', serverTime: service.clock(),
+        signedDeliveryResults: { enabled: Boolean(deliverySigner), protocol: 'symsoil-delivery-result/1' } });
       if (path === '/api/demo/session' && method === 'POST') {
         await readJSON(req);
         requireCondition(demo && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress), 'DEMO_DISABLED', '本地试用入口未开启', 403);
@@ -76,6 +77,13 @@ export function createApp({ service, credentials, demo = false, publicDir, allow
         if ((match = path.match(/^\/api\/credentials\/([^/]+)\/revoke$/)) && method === 'POST') return json(res, await mutate(['admin'], actor => access.revoke(actor.subject, match[1])));
         if ((match = path.match(/^\/api\/requests\/([^/]+)$/)) && method === 'GET') return json(res, service.request(memberAuth().subject, match[1]));
         if ((match = path.match(/^\/api\/requests\/([^/]+)\/respond$/)) && method === 'POST') return json(res, await mutate(['member'], (actor, body) => service.respond(actor.subject, match[1], body)));
+        if ((match = path.match(/^\/api\/requests\/([^/]+)\/delivery-result$/)) && method === 'POST') return json(res, await mutate(['member'], (actor, body) => {
+          requireCondition(deliverySigner, 'DELIVERY_SIGNING_UNAVAILABLE', '服务签名尚未配置，原交易结果仍须核对', 503);
+          requireCondition(Number.isSafeInteger(body.transferId) && body.transferId > 0 && body.transferId <= 0xffffffff,
+            'INVALID_TRANSFER_ID', '传输编号须为非零32位整数', 400);
+          const receipt = service.deliveryReceipt(actor.subject, match[1], body.signature);
+          return deliverySigner.signReceipt(receipt, body.transferId);
+        }));
         if ((match = path.match(/^\/api\/requests\/([^/]+)\/view$/)) && method === 'POST') return json(res, await mutate(['member'], actor => service.viewed(actor.subject, match[1])));
         if ((match = path.match(/^\/api\/requests\/([^/]+)\/cancel$/)) && method === 'POST') return json(res, await mutate(['member'], actor => service.cancel(actor.subject, match[1])));
         if ((match = path.match(/^\/api\/requests\/([^/]+)\/revise$/)) && method === 'POST') return json(res, await mutate(['admin'], (actor, body) => service.revise(actor.subject, match[1], body.payload)));

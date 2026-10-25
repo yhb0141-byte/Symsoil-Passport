@@ -5,6 +5,7 @@ import { openDatabase } from './database.mjs';
 import { PassportService } from './service.mjs';
 import { loadCredentials } from './auth.mjs';
 import { createApp } from './http.mjs';
+import { loadDeliverySigner } from './delivery-signer.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const demo = process.argv.includes('--demo');
@@ -12,6 +13,9 @@ const host = process.env.PASSPORT_HOST || '127.0.0.1';
 const port = Number(process.env.PASSPORT_PORT || 8787);
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('PASSPORT_PORT 须为有效端口');
 if (demo && host !== '127.0.0.1') throw new Error('试用模式只能监听127.0.0.1');
+const deliverySigner = loadDeliverySigner({ privateKeyPath: process.env.PASSPORT_SERVICE_KEY_FILE,
+  trustBundlePath: process.env.PASSPORT_SERVICE_TRUST_FILE,
+  authorityPublicKeyPath: process.env.PASSPORT_AUTHORITY_PUBLIC_FILE });
 const directory = resolve(process.env.PASSPORT_DATA_DIR || resolve(root, 'data', demo ? 'demo' : 'local'));
 mkdirSync(directory, { recursive: true, mode: 0o700 });
 const db = openDatabase(resolve(directory, 'passport.sqlite'));
@@ -32,7 +36,7 @@ const credentials = loadCredentials(resolve(directory, 'access.json'));
 const publicOrigin = process.env.PASSPORT_ORIGIN || null;
 if (publicOrigin && (new URL(publicOrigin).origin !== publicOrigin || !publicOrigin.startsWith('https://'))) throw new Error('PASSPORT_ORIGIN 须为不带路径的 HTTPS 来源');
 if (demo && publicOrigin) throw new Error('试用模式不得设置外部访问来源');
-const server = createApp({ service, credentials, demo, publicDir: resolve(root, 'public'), allowedHost: host, publicOrigin });
+const server = createApp({ service, credentials, demo, publicDir: resolve(root, 'public'), allowedHost: host, publicOrigin, deliverySigner });
 server.listen(port, host, () => {
   console.log(`共壤 Passport 已运行：http://${host}:${port}`);
   console.log(demo ? '本地试用：使用独立的示例账本。真实 NFC 需要兼容设备。' : `本地访问凭证：${resolve(directory, 'access.json')}（不会通过公开接口提供）`);

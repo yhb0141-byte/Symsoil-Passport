@@ -25,6 +25,7 @@
 | `GET /api/requests/:id` | 本人成员 | 读取完整待确认事项 |
 | `POST /api/requests/:id/view` | 本人成员 | 记录查看，不产生批准 |
 | `POST /api/requests/:id/respond` | 本人成员 | 提交设备签名回复 |
+| `POST /api/requests/:id/delivery-result` | 本人成员 | 核对已保存原签名并取得服务签名结果；默认未配置 |
 | `POST /api/requests/:id/cancel` | 本人成员 | 关闭未回复事项 |
 | `POST /api/requests/:id/revise` | 核定人 | 生成新版本；积分单不得改写 |
 | `POST /api/members/:id/revoke-device` | 核定人 | 停用旧设备、卡片与成员入口，取消待回复事项及未使用授权 |
@@ -112,7 +113,7 @@ NFC 扫描正文：
 
 浏览器设备先持久化完整签名再发送。网络错误或5xx不能证明事务没有成功；保留原回复，重连后原样核对。已经有相同回执时，读取结果或原签名重试不会再次记账。明确的4xx拒绝会释放本地待核对回复；用户需重新读取当前事项，不自动补签。只有签名准备阶段中断且未保存完整签名的占位才会在60秒后释放；已保存的签名不会据本地超时自动删除。
 
-工牌断线交付另定义 `symsoil-delivery-result/1` 最终结果帧。canonical对象固定包含 `communityId`、`outcome`（`accepted`或`rejected`）、`protocol`、`replySignature`、`requestId`、`resultId` 和非零 `transferId`，由社区服务以 ECDSA P-256 / SHA-256、64字节P1363格式签名。协调器只有在信任管理器选出的当前有效服务公钥核验通过，且帧中的社区、传输号和原成员签名与NVS待核对记录一致后，才可清除回执；`requestId` 和 `resultId` 也受服务签名保护。固定合成向量见 `firmware/protocol-vectors/delivery-result-v1.json`。当前HTTP响应尚未输出该签名封装，服务公钥的签名配置/轮换模块已实现；固定根的受控交接、物理配置页面与真实BLE接收路径仍待接入。见 [固件信任配置](firmware-trust.md)。
+工牌断线交付另定义 `symsoil-delivery-result/1` 最终结果帧。canonical对象固定包含 `communityId`、`outcome`（`accepted`或`rejected`）、`protocol`、`replySignature`、`requestId`、`resultId` 和非零 `transferId`，由社区服务以 ECDSA P-256 / SHA-256、64字节P1363格式签名。协调器只有在信任管理器选出的当前有效服务公钥核验通过，且帧中的社区、传输号和原成员签名与NVS待核对记录一致后，才可清除回执；`requestId` 和 `resultId` 也受服务签名保护。固定合成向量见 `firmware/protocol-vectors/delivery-result-v1.json`。新增成员专用 `POST /api/requests/:id/delivery-result` 为已保存的原回执输出该签名封装；签名服务需独立配置，默认关闭。`accepted` 表示回复已记录，包含拒绝回复，不是新的批准。固定根的受控交接、物理配置页面与真实BLE接收路径仍待接入。接口与运行说明见 [签名结果](delivery-results.md)。见 [固件信任配置](firmware-trust.md)。
 
 挑战的有效期为两分钟，避免沉默变成默认同意。卡片必须先显示完整正文和明确的选择，摘要前缀不能替代正文阅读。回执保存后不可改写；新的语义需要新的事项。
 
@@ -129,11 +130,13 @@ NFC 扫描正文：
 | 409 | `INSUFFICIENT_POINTS`、`OUT_OF_STOCK` | 本次事务回滚，告知成员 |
 | 409 | `IDEMPOTENCY_CONFLICT`、`GRANT_CONSUMED` | 保留原操作结果，勿更改单号重放 |
 | 413 / 415 | `BODY_TOO_LARGE`、`JSON_REQUIRED` | 更正请求格式 |
+| 409 | `RESULT_NOT_RECORDED`、`RECEIPT_MISMATCH`、`RECEIPT_INVALID` | 保留工牌原回执，核对同一笔；不得当作最终拒绝 |
+| 503 | `DELIVERY_SIGNING_UNAVAILABLE` | 配置服务签名，不能据此清除工牌待核对记录 |
 
 ## 接入外部设备
 
 本地 USB/NFC 读卡端可读取同一 NDEF 文本，然后用单独终端凭证调用 `/api/nfc/scan`。设备签名桥接端需持有本人成员会话，从 `/api/requests/:id` 获取完整内容，把已登记工牌返回的签名原样提交；桥接端不得代替工牌重新签名。
 
-下一阶段 BLE 帧、配对、分片、断线重连与固件签名尚未实现。现有签名帧可以复用，但这份 HTTP 接口不是现成 BLE 固件。硬件要求见 [firmware/README.md](../firmware/README.md)。
+真实 BLE 配对、GATT接收与定时器、设备端签名尚未接入。现有纯C分片、断线恢复和签名结果核验已通过主机测试，但这份 HTTP 接口不是现成 BLE 固件。硬件要求见 [firmware/README.md](../firmware/README.md)。
 
 固定协议向量位于 `firmware/protocol-vectors/confirmation-v1.json` 和 `firmware/protocol-vectors/delivery-result-v1.json`，仅含合成内容、公钥与签名。Node 和独立 Python 实现已核验 UTF-16 键序、UTF-8 内容、控制字符与孤立代理字符的编码、P1363签名及确认/结果字段篡改失败。见 [向量说明](../firmware/protocol-vectors/README.md)。
