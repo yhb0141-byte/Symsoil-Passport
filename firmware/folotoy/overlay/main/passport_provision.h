@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define PASSPORT_PROVISION_SAMPLE_GAP_MS UINT64_C(250)
 #define PASSPORT_PROVISION_HOLD_MS UINT64_C(2000)
 #define PASSPORT_PROVISION_FINGERPRINT_HEX 64
 
@@ -70,6 +71,9 @@ typedef struct {
     uint64_t timeout_ms;
     uint64_t hold_started_ms;
     bool fingerprint_key_down;
+    bool key_sampled;
+    bool released;
+    uint64_t last_key_ms;
 } passport_provision_t;
 
 void passport_provision_init(passport_provision_t *provision);
@@ -93,14 +97,19 @@ passport_provision_result_t passport_provision_begin_local(
     uint64_t now_ms,
     uint64_t timeout_ms);
 
-/* The full fingerprint must be independently checked before pressing/releasing
- * OK on FINGERPRINT. A second, fresh local press on REVIEW begins the 2s hold.
- * Storage is only changed at successful completion of this hold. All events
- * and ticks need one serialized lifecycle/worker owner, not a BSP timer ISR or
- * callback: completing a hold performs signature verification and NVS writes.
- * Input loss, queue overflow, stale sampling or an uncertain release must be
- * mapped to CANCEL by that owner; elapsed time alone does not prove contact.
+/* Check the full fingerprint independently. Feed debounced physical key
+ * LEVELS (0=none, 1=OK only, other=cancel) at intervals <=250ms. Begin and a
+ * sampling gap require a fresh release before a press can count. Fingerprint
+ * press/release advances to review; a second continuous 2s press applies.
+ * Release never commits. tick and sync never prove physical contact.
+ * One serialized worker owns all calls; a successful sample performs crypto
+ * and NVS writes. Queue overflow/uncertain source must cancel; never feed
+ * network fields, replay queued edges, or cached key levels into sample.
  */
+passport_provision_result_t passport_provision_sample(
+    passport_provision_t *provision, unsigned keys, uint64_t now_ms);
+/* Cancellation only. Legacy OK_DOWN/OK_UP events fail closed with BAD_ARGUMENT
+ * and cancel: callers must migrate to actual periodic level sampling. */
 passport_provision_result_t passport_provision_local_input(
     passport_provision_t *provision,
     passport_provision_local_event_t event,

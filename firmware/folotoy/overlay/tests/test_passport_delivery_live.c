@@ -55,11 +55,14 @@ int main(void)
     passport_provision_get_view(&local, &view);
     assert(strcmp(view.root_fingerprint, LIVE_ROOT_FINGERPRINT) == 0);
     assert(view.state == PASSPORT_PROVISION_FINGERPRINT);
-    (void)passport_provision_local_input(&local, PASSPORT_PROVISION_OK_DOWN, 10);
-    (void)passport_provision_local_input(&local, PASSPORT_PROVISION_OK_UP, 11);
-    (void)passport_provision_local_input(&local, PASSPORT_PROVISION_OK_DOWN, 20);
+    (void)passport_provision_sample(&local, 0, 9);
+    (void)passport_provision_sample(&local, 1, 10);
+    (void)passport_provision_sample(&local, 0, 11);
+    (void)passport_provision_sample(&local, 1, 20);
+    for (uint64_t now = 220; now < 2020; now += 200)
+        assert(passport_provision_sample(&local, 1, now) == PASSPORT_PROVISION_NO_CHANGE);
     assert(passport_provision_tick(&local, 2019) != PASSPORT_PROVISION_APPLIED);
-    assert(passport_provision_tick(&local, 2020) == PASSPORT_PROVISION_APPLIED);
+    assert(passport_provision_sample(&local, 1, 2020) == PASSPORT_PROVISION_APPLIED);
     assert(trust.state == PASSPORT_TRUST_ACTIVE);
     assert(passport_p256_verify_p1363(LIVE_MEMBER_X, LIVE_MEMBER_Y,
         (const uint8_t *)LIVE_CONFIRMATION, strlen(LIVE_CONFIRMATION), LIVE_MEMBER_SIGNATURE));

@@ -110,15 +110,25 @@ static void begin(passport_provision_t *p, passport_trust_t *trust, uint32_t epo
 
 static void review(passport_provision_t *p, uint64_t now)
 {
-    assert(passport_provision_local_input(p, PASSPORT_PROVISION_OK_DOWN, now) == PASSPORT_PROVISION_NO_CHANGE);
-    assert(passport_provision_local_input(p, PASSPORT_PROVISION_OK_UP, now + 1) == PASSPORT_PROVISION_OK);
+    assert(passport_provision_sample(p, 0, now - 1) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(passport_provision_sample(p, 1, now) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(passport_provision_sample(p, 0, now + 1) == PASSPORT_PROVISION_OK);
     assert(p->view.state == PASSPORT_PROVISION_REVIEW);
 }
 
 static void hold(passport_provision_t *p, uint64_t now)
 {
-    assert(passport_provision_local_input(p, PASSPORT_PROVISION_OK_DOWN, now) == PASSPORT_PROVISION_OK);
+    (void)passport_provision_sample(p, 0, now - 1);
+    assert(passport_provision_sample(p, 1, now) == PASSPORT_PROVISION_OK);
     assert(p->view.state == PASSPORT_PROVISION_HOLDING);
+}
+
+static passport_provision_result_t finish_hold(passport_provision_t *p)
+{
+    const uint64_t start = p->hold_started_ms;
+    for (uint64_t offset = 200; offset < PASSPORT_PROVISION_HOLD_MS; offset += 200)
+        assert(passport_provision_sample(p, 1, start + offset) == PASSPORT_PROVISION_NO_CHANGE);
+    return passport_provision_sample(p, 1, start + PASSPORT_PROVISION_HOLD_MS);
 }
 
 static void test_complete_once_and_fingerprint(void)
@@ -141,21 +151,19 @@ static void test_complete_once_and_fingerprint(void)
     assert(strcmp(view.community_id, ROOT.community_id) == 0 && view.epoch == 1 &&
         view.requested_state == PASSPORT_TRUST_ACTIVE);
     assert(memory.writes == 0);
-    /* A held key on the fingerprint page cannot carry into approval. */
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_DOWN, 110) == PASSPORT_PROVISION_NO_CHANGE);
+    /* Initial held key cannot stand in for a fresh local press/release. */
+    assert(passport_provision_sample(&p, 1, 110) == PASSPORT_PROVISION_NO_CHANGE);
     assert(passport_provision_tick(&p, 4110) == PASSPORT_PROVISION_NO_CHANGE);
     assert(memory.writes == 0 && p.view.state == PASSPORT_PROVISION_FINGERPRINT);
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_UP, 4111) == PASSPORT_PROVISION_OK);
-    assert(passport_provision_tick(&p, 6111) == PASSPORT_PROVISION_NO_CHANGE);
-    assert(memory.writes == 0 && p.view.state == PASSPORT_PROVISION_REVIEW);
-    hold(&p, 6200);
-    assert(passport_provision_tick(&p, 8199) == PASSPORT_PROVISION_NO_CHANGE);
-    assert(memory.writes == 0);
-    assert(passport_provision_tick(&p, 8200) == PASSPORT_PROVISION_APPLIED);
+    assert(passport_provision_sample(&p, 0, 4111) == PASSPORT_PROVISION_NO_CHANGE);
+    review(&p, 4200);
+    assert(passport_provision_tick(&p, 4300) == PASSPORT_PROVISION_NO_CHANGE);
+    hold(&p, 4400);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_APPLIED);
     assert(p.view.state == PASSPORT_PROVISION_COMPLETE && trust.state == PASSPORT_TRUST_ACTIVE);
     const unsigned writes = memory.writes;
     assert(passport_provision_tick(&p, 8300) == PASSPORT_PROVISION_NO_CHANGE);
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_UP, 8301) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(passport_provision_sample(&p, 0, 8301) == PASSPORT_PROVISION_NO_CHANGE);
     assert(memory.writes == writes);
 }
 
@@ -166,14 +174,14 @@ static void test_early_release_and_wrong_key(void)
     setup(&memory, &trust);
     passport_provision_t p;
     begin(&p, &trust, 1, 0);
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_UP, 1) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(passport_provision_sample(&p, 0, 1) == PASSPORT_PROVISION_NO_CHANGE);
     assert(p.view.state == PASSPORT_PROVISION_FINGERPRINT);
     review(&p, 2);
     hold(&p, 10);
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_UP, 2009) == PASSPORT_PROVISION_OK);
+    assert(passport_provision_sample(&p, 0, 2009) == PASSPORT_PROVISION_NO_CHANGE);
     assert(memory.writes == 0 && p.view.state == PASSPORT_PROVISION_REVIEW);
     hold(&p, 2010);
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_DOWN, 2020) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(passport_provision_sample(&p, 1, 2020) == PASSPORT_PROVISION_NO_CHANGE);
     assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OTHER_DOWN, 4010) == PASSPORT_PROVISION_WAS_CANCELLED);
     assert(passport_provision_tick(&p, 4011) == PASSPORT_PROVISION_NO_CHANGE && memory.writes == 0);
     begin(&p, &trust, 1, 5000);
@@ -182,7 +190,7 @@ static void test_early_release_and_wrong_key(void)
     begin(&p, &trust, 1, 6000);
     review(&p, 6001);
     hold(&p, 6010);
-    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_UP, 8010) == PASSPORT_PROVISION_APPLIED);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_APPLIED);
 }
 
 static void test_preflight_and_candidate_updates(void)
@@ -261,7 +269,7 @@ static void test_time_and_overflow(void)
     begin(&p, &trust, 1, UINT64_MAX - 5000);
     review(&p, UINT64_MAX - 4999);
     hold(&p, UINT64_MAX - 4000);
-    assert(passport_provision_tick(&p, UINT64_MAX - 2000) == PASSPORT_PROVISION_APPLIED);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_APPLIED);
     begin(&p, &trust, 2, UINT64_MAX - 1000);
     assert(passport_provision_tick(&p, 0) == PASSPORT_PROVISION_TIMED_OUT);
     assert(trust.manifest.epoch == 1);
@@ -277,7 +285,7 @@ static void test_failed_store_and_recovery(void)
     review(&p, 1);
     hold(&p, 10);
     memory.fail_write = 2;
-    assert(passport_provision_tick(&p, 2010) == PASSPORT_PROVISION_TRUST_ERROR);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_TRUST_ERROR);
     assert(p.view.state == PASSPORT_PROVISION_FAILED &&
         p.view.trust_result == PASSPORT_TRUST_IO_ERROR && trust.state == PASSPORT_TRUST_LOCKED);
     const unsigned writes = memory.writes;
@@ -298,7 +306,7 @@ static void test_failed_store_and_recovery(void)
     assert(p.view.authoritative_minimum_epoch == 1 && p.view.mode == PASSPORT_PROVISION_RECOVER);
     review(&p, 4001);
     hold(&p, 4010);
-    assert(passport_provision_tick(&p, 6010) == PASSPORT_PROVISION_APPLIED);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_APPLIED);
     assert(trust.state == PASSPORT_TRUST_ACTIVE && trust.manifest.epoch == 2);
     value.epoch = 1;
     signature_for(&value, signature);
@@ -323,7 +331,7 @@ static void test_stop_and_changed_trust_during_review(void)
     signature_for(&next, signature);
     assert(passport_trust_apply(&trust, &next, signature, true) == PASSPORT_TRUST_OK);
     const unsigned before = memory.writes;
-    assert(passport_provision_tick(&p, 2010) == PASSPORT_PROVISION_TRUST_ERROR);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_TRUST_ERROR);
     assert(p.view.trust_result == PASSPORT_TRUST_REPLAY && memory.writes == before);
     assert(passport_provision_tick(&p, 2011) == PASSPORT_PROVISION_NO_CHANGE);
     next = candidate(3);
@@ -336,12 +344,83 @@ static void test_stop_and_changed_trust_during_review(void)
     assert(p.view.requested_state == PASSPORT_TRUST_SUSPENDED);
     review(&p, 3001);
     hold(&p, 3010);
-    assert(passport_provision_tick(&p, 5010) == PASSPORT_PROVISION_APPLIED);
+    assert(finish_hold(&p) == PASSPORT_PROVISION_APPLIED);
     assert(trust.state == PASSPORT_TRUST_SUSPENDED && trust.manifest.epoch == 3);
+}
+
+static void test_timer_cannot_prove_contact(void)
+{
+    memory_t memory;
+    passport_trust_t trust;
+    setup(&memory, &trust);
+    passport_provision_t p;
+    begin(&p, &trust, 1, 0);
+    review(&p, 1);
+    hold(&p, 10);
+    assert(passport_provision_tick(&p, 2010) != PASSPORT_PROVISION_APPLIED);
+    assert(memory.writes == 0);
+}
+
+static void test_sampling_boundaries_and_nonphysical_updates(void)
+{
+    for (unsigned gap = 250; gap <= 251; ++gap) {
+        memory_t memory;
+        passport_trust_t trust;
+        setup(&memory, &trust);
+        passport_provision_t p;
+        begin(&p, &trust, 1, 0);
+        review(&p, 1);
+        hold(&p, 10);
+        passport_trust_manifest_t value = candidate(1);
+        uint8_t signature[64];
+        signature_for(&value, signature);
+        /* Neither timer nor an unchanged candidate refresh is a key sample. */
+        assert(passport_provision_tick(&p, 200) == PASSPORT_PROVISION_NO_CHANGE);
+        assert(passport_provision_sync_candidate(&p, &value, signature, 259) == PASSPORT_PROVISION_NO_CHANGE);
+        assert(passport_provision_sample(&p, 1, 10 + gap) == PASSPORT_PROVISION_NO_CHANGE);
+        if (gap == 250) {
+            for (uint64_t now = 510; now <= 2010; now += 250) {
+                passport_provision_result_t result = passport_provision_sample(&p, 1, now);
+                assert(result == (now == 2010 ? PASSPORT_PROVISION_APPLIED : PASSPORT_PROVISION_NO_CHANGE));
+            }
+            assert(memory.writes == 2);
+        } else {
+            for (uint64_t now = 511; now <= 2261; now += 250)
+                assert(passport_provision_sample(&p, 1, now) == PASSPORT_PROVISION_NO_CHANGE);
+            assert(memory.writes == 0 && p.view.state == PASSPORT_PROVISION_REVIEW);
+            hold(&p, 2300); /* explicitly release, then press afresh */
+            assert(finish_hold(&p) == PASSPORT_PROVISION_APPLIED);
+        }
+    }
+}
+
+static void test_release_and_legacy_edges_do_not_apply(void)
+{
+    memory_t memory;
+    passport_trust_t trust;
+    setup(&memory, &trust);
+    passport_provision_t p;
+    begin(&p, &trust, 1, 0);
+    review(&p, 1);
+    hold(&p, 10);
+    for (uint64_t now = 210; now < 2010; now += 200)
+        assert(passport_provision_sample(&p, 1, now) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(passport_provision_sample(&p, 0, 2010) == PASSPORT_PROVISION_OK);
+    assert(passport_provision_tick(&p, 2011) == PASSPORT_PROVISION_NO_CHANGE);
+    assert(memory.writes == 0);
+    hold(&p, 2020);
+    assert(passport_provision_sample(&p, 3, 2021) == PASSPORT_PROVISION_WAS_CANCELLED);
+    assert(memory.writes == 0);
+    begin(&p, &trust, 1, 3000);
+    assert(passport_provision_local_input(&p, PASSPORT_PROVISION_OK_DOWN, 3001) == PASSPORT_PROVISION_BAD_ARGUMENT);
+    assert(p.view.state == PASSPORT_PROVISION_CANCELLED && memory.writes == 0);
 }
 
 int main(void)
 {
+    test_sampling_boundaries_and_nonphysical_updates();
+    test_release_and_legacy_edges_do_not_apply();
+    test_timer_cannot_prove_contact();
     test_complete_once_and_fingerprint();
     test_early_release_and_wrong_key();
     test_preflight_and_candidate_updates();

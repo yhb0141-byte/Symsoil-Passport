@@ -151,14 +151,10 @@ passport_provision_result_t passport_provision_tick(
 {
     const passport_provision_result_t checked = check_time(provision, now_ms);
     if (checked != PASSPORT_PROVISION_OK) return checked;
-    if (provision->view.state == PASSPORT_PROVISION_HOLDING &&
-        now_ms - provision->hold_started_ms >= PASSPORT_PROVISION_HOLD_MS) {
-        return commit_once(provision);
-    }
     return PASSPORT_PROVISION_NO_CHANGE;
 }
 
-passport_provision_result_t passport_provision_local_input(
+static passport_provision_result_t process_input(
     passport_provision_t *provision,
     passport_provision_local_event_t event, uint64_t now_ms)
 {
@@ -190,14 +186,50 @@ passport_provision_result_t passport_provision_local_input(
         return PASSPORT_PROVISION_NO_CHANGE;
     }
     if (event == PASSPORT_PROVISION_OK_UP) {
-        if (now_ms - provision->hold_started_ms >= PASSPORT_PROVISION_HOLD_MS) {
-            return commit_once(provision);
-        }
         provision->view.state = PASSPORT_PROVISION_REVIEW;
         provision->hold_started_ms = 0;
         return PASSPORT_PROVISION_OK;
     }
     return PASSPORT_PROVISION_NO_CHANGE;
+}
+
+/* Legacy edges are not evidence of continuous contact. Fail closed so an
+ * old BSP integration cannot silently retain the former timer approval path. */
+passport_provision_result_t passport_provision_local_input(
+    passport_provision_t *p, passport_provision_local_event_t event, uint64_t now)
+{
+    if (event == PASSPORT_PROVISION_CANCEL || event == PASSPORT_PROVISION_OTHER_DOWN)
+        return process_input(p, event, now);
+    const passport_provision_result_t checked = check_time(p, now);
+    if (checked != PASSPORT_PROVISION_OK) return checked;
+    return close_ceremony(p, PASSPORT_PROVISION_CANCELLED, PASSPORT_PROVISION_BAD_ARGUMENT);
+}
+
+passport_provision_result_t passport_provision_sample(
+    passport_provision_t *p, unsigned keys, uint64_t now)
+{
+    const passport_provision_result_t checked = check_time(p, now);
+    if (checked != PASSPORT_PROVISION_OK) return checked;
+    if (!p->key_sampled || now - p->last_key_ms > PASSPORT_PROVISION_SAMPLE_GAP_MS) {
+        p->released = false;
+        p->fingerprint_key_down = false;
+        p->hold_started_ms = 0;
+        if (p->view.state == PASSPORT_PROVISION_HOLDING)
+            p->view.state = PASSPORT_PROVISION_REVIEW;
+    }
+    p->key_sampled = true;
+    p->last_key_ms = now;
+    if (keys > 1) return process_input(p, PASSPORT_PROVISION_OTHER_DOWN, now);
+    if (!keys) {
+        p->released = true;
+        return process_input(p, PASSPORT_PROVISION_OK_UP, now);
+    }
+    if (!p->released) return PASSPORT_PROVISION_NO_CHANGE;
+    const passport_provision_result_t result = process_input(p, PASSPORT_PROVISION_OK_DOWN, now);
+    if (p->view.state == PASSPORT_PROVISION_HOLDING &&
+        now - p->hold_started_ms >= PASSPORT_PROVISION_HOLD_MS)
+        return commit_once(p);
+    return result;
 }
 
 passport_provision_result_t passport_provision_sync_candidate(
