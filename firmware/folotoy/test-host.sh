@@ -78,6 +78,8 @@ node "${root}/../../scripts/delivery-live-fixture-header.mjs" > "${crypto_direct
     "${root}/overlay/tests/test_passport_signer.c" \
     "${root}/overlay/tests/passport_crypto_openssl.c" \
     "${root}/overlay/main/passport_signer.c" \
+    "${root}/overlay/main/passport_review.c" \
+    "${root}/overlay/main/passport_core.c" \
     "${root}/overlay/main/passport_trust.c" \
     "${root}/overlay/main/passport_delivery.c" \
     "${root}/overlay/main/passport_outbox.c" \

@@ -1,5 +1,6 @@
 // Host-only software key. Generated in RAM each run; never a production backend.
 #include "passport_signer.h"
+#include "passport_review.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -81,6 +82,108 @@ static passport_confirmation_frame_t confirmation(void)
         .request_id = "synthetic-request", .request_version = 2,
     };
 }
+
+static void ready_review(passport_review_t *r, passport_confirmation_frame_t *f,
+                         const uint8_t *request, size_t length, uint64_t now)
+{
+    assert(passport_review_open(r, PASSPORT_KIND_GRANT, f, request, length, 2, now + 10000, now));
+    assert(!passport_review_final(r, now));
+    assert(!passport_review_read_page(r, 1, now)); // Cannot skip first page.
+    assert(passport_review_read_page(r, 0, now));
+    assert(!passport_review_read_page(r, 0, now)); // Replayed page event.
+    assert(passport_review_read_page(r, 1, now));
+    assert(passport_review_choose(r, 2, now)); // Explicit decline.
+    assert(passport_review_final(r, now));
+}
+static void test_review(provider_t *p, passport_sign_provider_t *provider, const uint8_t hash[32])
+{
+    memory_t counters = {0}, outbox = {0};
+    passport_outbox_store_t cs = store_for(&counters), os = store_for(&outbox);
+    passport_counter_t counter;
+    passport_delivery_t delivery;
+    passport_signer_t signer;
+    assert(passport_counter_enroll(&counter, &cs, hash, 0));
+    assert(passport_delivery_open(&delivery, &os, 100, 3) == PASSPORT_DELIVERY_EMPTY);
+    assert(passport_signer_open(&signer, &counter, &delivery, provider));
+    p->counter = &counter; p->signer = &signer;
+    uint8_t request[] = "{\"synthetic\":true}";
+    uint8_t digest[32]; char digest_hex[65];
+    assert(passport_sha256(request, sizeof(request)-1, digest));
+    for (size_t i = 0; i < 32; ++i) snprintf(digest_hex + 2*i, 3, "%02x", digest[i]);
+    passport_confirmation_frame_t f = confirmation();
+    f.request_digest = digest_hex;
+    char nonce[] = "01234567890123456789012345678901";
+    f.nonce = nonce;
+    passport_review_t r;
+    for (passport_kind_t kind = PASSPORT_KIND_CONTRIBUTION; kind <= PASSPORT_KIND_GRANT; ++kind) {
+        for (size_t choice = 0; choice < passport_decision_count(kind); ++choice) {
+            assert(passport_review_open(&r, kind, &f, request, sizeof(request)-1, 1, 5000, 0));
+            assert(passport_review_read_page(&r, 0, 0));
+            assert(passport_review_choose(&r, choice, 0));
+            assert(strcmp(r.frame.decision, passport_decision(kind, choice)) == 0);
+            assert(!passport_review_choose(&r, passport_decision_count(kind), 0));
+        }
+    }
+    assert(!passport_review_open(&r, (passport_kind_t)99, &f, request, sizeof(request)-1, 1, 100, 0));
+    request[0] ^= 1;
+    assert(!passport_review_open(&r, PASSPORT_KIND_GRANT, &f, request, sizeof(request)-1, 1, 100, 0));
+    request[0] ^= 1;
+    ready_review(&r, &f, request, sizeof(request)-1, 0);
+    // Holding OK before arrival cannot carry across the final-page boundary.
+    for (uint64_t t=0; t<=2200; t+=100)
+        assert(passport_review_sample(&r, 1, t, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(p->calls == 0);
+    assert(passport_review_sample(&r, 0, 2300, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 1, 2400, &signer, 21) == PASSPORT_SIGN_INVALID);
+    // A dropped input stream cannot be interpreted as continuous physical hold.
+    assert(passport_review_sample(&r, 1, 4500, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(!r.holding && p->calls == 0);
+    assert(passport_review_sample(&r, 0, 4600, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 1, 4700, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 3, 4800, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(!r.holding && !r.released);
+    // Choice changes require rendering and entering final page again.
+    assert(passport_review_choose(&r, 0, 4900));
+    assert(passport_review_sample(&r, 1, 5000, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_choose(&r, 2, 5000));
+    assert(passport_review_final(&r, 5000));
+    assert(passport_review_sample(&r, 0, 5000, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 1, 5100, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 1, 5099, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(r.state == PASSPORT_REVIEW_CLOSED); // Monotonic clock regressed.
+    ready_review(&r, &f, request, sizeof(request)-1, 0);
+    r.deadline_ms = 2000;
+    assert(passport_review_sample(&r, 0, 0, &signer, 21) == PASSPORT_SIGN_INVALID);
+    for (uint64_t t=100; t<=2100; t+=100)
+        assert(passport_review_sample(&r, 1, t, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(p->calls == 0 && r.state == PASSPORT_REVIEW_CLOSED);
+    ready_review(&r, &f, request, sizeof(request)-1, 0);
+    passport_review_cancel(&r); // Revision/disconnect/input queue overflow.
+    assert(passport_review_sample(&r, 1, 100, &signer, 21) == PASSPORT_SIGN_INVALID);
+    ready_review(&r, &f, request, sizeof(request)-1, 0);
+    // Mutating caller-owned buffers after load cannot change what is signed.
+    request[0] ^= 1; digest_hex[0] ^= 1; nonce[0] = 'X'; f.nonce = "replacement";
+    assert(r.request[0] == '{' && strcmp(r.frame.nonce, "replacement"));
+    assert(passport_review_sample(&r, 0, 0, &signer, 21) == PASSPORT_SIGN_INVALID);
+    // Early release restarts hold.
+    assert(passport_review_sample(&r, 1, 100, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 0, 200, &signer, 21) == PASSPORT_SIGN_INVALID);
+    outbox.fail_write = 1;
+    for (uint64_t t=300; t<2300; t+=100)
+        assert(passport_review_sample(&r, 1, t, &signer, 21) == PASSPORT_SIGN_INVALID);
+    assert(passport_review_sample(&r, 1, 2300, &signer, 21) == PASSPORT_SIGN_NOT_DURABLE);
+    assert(p->calls == 1 && r.state == PASSPORT_REVIEW_CONSUMED && signer.staged);
+    assert(passport_review_sample(&r, 1, 2400, &signer, 21) == PASSPORT_SIGN_INVALID);
+    outbox.fail_write = 0;
+    assert(passport_signer_retry_save(&signer) == PASSPORT_SIGN_OK && p->calls == 1);
+    assert(strstr(delivery.pending.frame, "\"decision\":\"decline\""));
+    assert(strstr(delivery.pending.frame, "01234567890123456789012345678901"));
+    assert(passport_p256_verify_p1363(provider->public_x, provider->public_y,
+        (uint8_t *)delivery.pending.frame, delivery.pending.frame_length, delivery.pending.signature));
+    p->calls = 0;
+    puts("Local review: immutable request, page order, physical sampling, expiry and exact signature retry PASS");
+}
+
 int main(void)
 {
     provider_t p = {0};
@@ -94,6 +197,7 @@ int main(void)
     passport_sign_provider_t provider = { .context = &p, .sign = sign_frame };
     memcpy(provider.public_x, point + 1, 32);
     memcpy(provider.public_y, point + 33, 32);
+    test_review(&p, &provider, key_hash);
     memory_t counters = {0}, outbox = {0};
     passport_outbox_store_t cs = store_for(&counters), os = store_for(&outbox);
     passport_counter_t counter, reopened;

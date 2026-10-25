@@ -11,6 +11,7 @@ idf_component_register(
          "passport_trust.c"
          "passport_provision.c"
          "passport_signer.c"
+         "passport_review.c"
     INCLUDE_DIRS "."
     REQUIRES bsp esp_timer mbedtls nvs_flash
 )
