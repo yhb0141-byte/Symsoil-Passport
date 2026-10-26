@@ -1,0 +1,184 @@
+{
+  "protocol": "symsoil-passport/1",
+  "synthetic": true,
+  "note": "Public conformance material only. No private key, member credential or live authorization is included.",
+  "vectors": [
+    {
+      "name": "contribution",
+      "publicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "JB-jgrJKPFCBj7pMqWBmRvHKELz9NUwPi5cWqFo33uE",
+        "y": "wmp9ser63Tn1lEV-3u15eXXMNGInfx9D5Dz0Fq2VA7s"
+      },
+      "request": {
+        "communityId": "synthetic-community",
+        "memberId": "synthetic-member",
+        "kind": "contribution",
+        "sourceId": "synthetic-source-1",
+        "version": 1,
+        "payload": {
+          "title": "维护花园 🌱\n整理“工具架”",
+          "points": 30,
+          "approvedBy": "synthetic-admin",
+          "policy": "contribution-v1",
+          "terminalId": "synthetic-terminal"
+        },
+        "id": "synthetic-request-1",
+        "digest": "bbed7727d04df15a802f9b59206f876d60fd17b3c63e1b0197842d898bfc18c7",
+        "nonce": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB",
+        "expiresAt": 1925020860000
+      },
+      "decision": "receive",
+      "counter": 1,
+      "deviceId": "D-cbe700af1bb3284e386903af",
+      "canonicalContent": "{\"communityId\":\"synthetic-community\",\"kind\":\"contribution\",\"memberId\":\"synthetic-member\",\"payload\":{\"approvedBy\":\"synthetic-admin\",\"points\":30,\"policy\":\"contribution-v1\",\"terminalId\":\"synthetic-terminal\",\"title\":\"维护花园 🌱\\n整理“工具架”\"},\"sourceId\":\"synthetic-source-1\",\"version\":1}",
+      "canonicalFrame": "{\"communityId\":\"synthetic-community\",\"counter\":1,\"decision\":\"receive\",\"deviceId\":\"D-cbe700af1bb3284e386903af\",\"expiresAt\":1925020860000,\"memberId\":\"synthetic-member\",\"nonce\":\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB\",\"protocol\":\"symsoil-passport/1\",\"requestDigest\":\"bbed7727d04df15a802f9b59206f876d60fd17b3c63e1b0197842d898bfc18c7\",\"requestId\":\"synthetic-request-1\",\"requestVersion\":1}",
+      "signature": "iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg"
+    },
+    {
+      "name": "order",
+      "publicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "JB-jgrJKPFCBj7pMqWBmRvHKELz9NUwPi5cWqFo33uE",
+        "y": "wmp9ser63Tn1lEV-3u15eXXMNGInfx9D5Dz0Fq2VA7s"
+      },
+      "request": {
+        "communityId": "synthetic-community",
+        "memberId": "synthetic-member",
+        "kind": "order",
+        "sourceId": "synthetic-source-2",
+        "version": 1,
+        "payload": {
+          "title": "菜园收获包 1 份",
+          "points": 20,
+          "itemId": "harvest",
+          "terminalId": "synthetic-terminal"
+        },
+        "id": "synthetic-request-2",
+        "digest": "731e278c62557023f8272a69f7d8c20071145504d635f0b38d912cdf17988d44",
+        "nonce": "AgICAgICAgICAgICAgICAgICAgICAgIC",
+        "expiresAt": 1925020860000
+      },
+      "decision": "spend",
+      "counter": 2,
+      "deviceId": "D-cbe700af1bb3284e386903af",
+      "canonicalContent": "{\"communityId\":\"synthetic-community\",\"kind\":\"order\",\"memberId\":\"synthetic-member\",\"payload\":{\"itemId\":\"harvest\",\"points\":20,\"terminalId\":\"synthetic-terminal\",\"title\":\"菜园收获包 1 份\"},\"sourceId\":\"synthetic-source-2\",\"version\":1}",
+      "canonicalFrame": "{\"communityId\":\"synthetic-community\",\"counter\":2,\"decision\":\"spend\",\"deviceId\":\"D-cbe700af1bb3284e386903af\",\"expiresAt\":1925020860000,\"memberId\":\"synthetic-member\",\"nonce\":\"AgICAgICAgICAgICAgICAgICAgICAgIC\",\"protocol\":\"symsoil-passport/1\",\"requestDigest\":\"731e278c62557023f8272a69f7d8c20071145504d635f0b38d912cdf17988d44\",\"requestId\":\"synthetic-request-2\",\"requestVersion\":1}",
+      "signature": "cevsLz5SZq54cBmqKulrJXZlNlHDtUDaG0Zfv4DSHZdFYXuxxixV6Pf2HE3yrVCGEc07buswi7kzSjLD9IxnUA"
+    },
+    {
+      "name": "expression",
+      "publicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "JB-jgrJKPFCBj7pMqWBmRvHKELz9NUwPi5cWqFo33uE",
+        "y": "wmp9ser63Tn1lEV-3u15eXXMNGInfx9D5Dz0Fq2VA7s"
+      },
+      "request": {
+        "communityId": "synthetic-community",
+        "memberId": "synthetic-member",
+        "kind": "expression",
+        "sourceId": "synthetic-source-3",
+        "version": 1,
+        "payload": {
+          "title": "核对我的转述",
+          "original": "我可以帮忙，但不能超过中午。",
+          "retelling": "伙伴愿意参与全天维护。"
+        },
+        "id": "synthetic-request-3",
+        "digest": "8fb7e851514bb95526b4d5648e63dfde1dd049e5b2cebfa6a0e38c3cf2b33c9f",
+        "nonce": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD",
+        "expiresAt": 1925020860000
+      },
+      "decision": "original_only",
+      "counter": 3,
+      "deviceId": "D-cbe700af1bb3284e386903af",
+      "canonicalContent": "{\"communityId\":\"synthetic-community\",\"kind\":\"expression\",\"memberId\":\"synthetic-member\",\"payload\":{\"original\":\"我可以帮忙，但不能超过中午。\",\"retelling\":\"伙伴愿意参与全天维护。\",\"title\":\"核对我的转述\"},\"sourceId\":\"synthetic-source-3\",\"version\":1}",
+      "canonicalFrame": "{\"communityId\":\"synthetic-community\",\"counter\":3,\"decision\":\"original_only\",\"deviceId\":\"D-cbe700af1bb3284e386903af\",\"expiresAt\":1925020860000,\"memberId\":\"synthetic-member\",\"nonce\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD\",\"protocol\":\"symsoil-passport/1\",\"requestDigest\":\"8fb7e851514bb95526b4d5648e63dfde1dd049e5b2cebfa6a0e38c3cf2b33c9f\",\"requestId\":\"synthetic-request-3\",\"requestVersion\":1}",
+      "signature": "3eBwkop3R-ecp2qXr5b-YQJlXqy8Bq7C5XtHXaZEk5-GrCLZUajyW0fVeK5UivhXFLezplH3E8tk_4ZC8sSy-w"
+    },
+    {
+      "name": "grant",
+      "publicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "JB-jgrJKPFCBj7pMqWBmRvHKELz9NUwPi5cWqFo33uE",
+        "y": "wmp9ser63Tn1lEV-3u15eXXMNGInfx9D5Dz0Fq2VA7s"
+      },
+      "request": {
+        "communityId": "synthetic-community",
+        "memberId": "synthetic-member",
+        "kind": "grant",
+        "sourceId": "synthetic-source-4",
+        "version": 1,
+        "payload": {
+          "title": "授权小壤更新菜园排班",
+          "agentId": "xiaorang",
+          "expiresInHours": 24,
+          "maxUses": 1,
+          "action": {
+            "resource": "garden-roster",
+            "action": "update",
+            "value": "周六上午：合成测试成员维护菜园"
+          },
+          "boundaries": "不外发 不转授权 不操作其他资源"
+        },
+        "id": "synthetic-request-4",
+        "digest": "d7876563fd16f58aed0db10fd0eea5be7445ea55355f0097e80c53930f5ed266",
+        "nonce": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "expiresAt": 1925020860000
+      },
+      "decision": "approve",
+      "counter": 4,
+      "deviceId": "D-cbe700af1bb3284e386903af",
+      "canonicalContent": "{\"communityId\":\"synthetic-community\",\"kind\":\"grant\",\"memberId\":\"synthetic-member\",\"payload\":{\"action\":{\"action\":\"update\",\"resource\":\"garden-roster\",\"value\":\"周六上午：合成测试成员维护菜园\"},\"agentId\":\"xiaorang\",\"boundaries\":\"不外发 不转授权 不操作其他资源\",\"expiresInHours\":24,\"maxUses\":1,\"title\":\"授权小壤更新菜园排班\"},\"sourceId\":\"synthetic-source-4\",\"version\":1}",
+      "canonicalFrame": "{\"communityId\":\"synthetic-community\",\"counter\":4,\"decision\":\"approve\",\"deviceId\":\"D-cbe700af1bb3284e386903af\",\"expiresAt\":1925020860000,\"memberId\":\"synthetic-member\",\"nonce\":\"BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\",\"protocol\":\"symsoil-passport/1\",\"requestDigest\":\"d7876563fd16f58aed0db10fd0eea5be7445ea55355f0097e80c53930f5ed266\",\"requestId\":\"synthetic-request-4\",\"requestVersion\":1}",
+      "signature": "X4gsC90Lmvssrhkmo3k2cabQkB0OXBxhn0zzUmiP1k94EBWiGgUbcBh2aI02oAZAjoTLs9vTHM9uVnkm83rCmw"
+    }
+  ],
+  "serializerCases": [
+    {
+      "name": "utf8-values-and-controls",
+      "value": {
+        "title": "花园 🌱",
+        "line": "第一行\n第二行\t\"引号\"\\斜线",
+        "enabled": true,
+        "empty": null,
+        "points": 9007199254740991
+      },
+      "expected": "{\"empty\":null,\"enabled\":true,\"line\":\"第一行\\n第二行\\t\\\"引号\\\"\\\\斜线\",\"points\":9007199254740991,\"title\":\"花园 🌱\"}"
+    },
+    {
+      "name": "utf16-key-order",
+      "value": {
+        "": 2,
+        "𐀀": 1,
+        "ASCII": 0
+      },
+      "expected": "{\"ASCII\":0,\"𐀀\":1,\"\":2}"
+    },
+    {
+      "name": "lone-surrogate",
+      "value": {
+        "text": "\ud800"
+      },
+      "expected": "{\"text\":\"\\ud800\"}"
+    },
+    {
+      "name": "array-order",
+      "value": [
+        3,
+        "共壤",
+        false,
+        null,
+        {
+          "z": -7,
+          "a": 0
+        }
+      ],
+      "expected": "[3,\"共壤\",false,null,{\"a\":0,\"z\":-7}]"
+    }
+  ]
+}

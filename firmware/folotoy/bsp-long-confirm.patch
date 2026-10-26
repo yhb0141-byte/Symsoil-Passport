@@ -1,0 +1,9 @@
+diff --git a/components/bsp/include/bsp_pins.h b/components/bsp/include/bsp_pins.h
+index 8b0af0d..a1c1241 100644
+--- a/components/bsp/include/bsp_pins.h
++++ b/components/bsp/include/bsp_pins.h
+@@ -62 +62,3 @@
+-#define BSP_BTN_LONG_PRESS_MS   500   // 长按触发时间
++// 共壤确认动作要求连续按住 2 秒。提前松开只形成 CLICK，应用不会把它
++// 转成确认；不要降低此值来“改善手感”。
++#define BSP_BTN_LONG_PRESS_MS   2000  // 明确确认的连续按住时长

@@ -1,0 +1,101 @@
+{
+  "protocol": "symsoil-trust/1",
+  "synthetic": true,
+  "authorityPublicKey": {
+    "kty": "EC",
+    "x": "do_5ldNP69_9pYdOGxxnsWTJzXvvICo0Ll3Jao2odmE",
+    "y": "Ejaxeds0gD7TFrkQmuPy42v6tnUQ_8EaTXbsEQL_X4Y",
+    "crv": "P-256"
+  },
+  "bundles": [
+    {
+      "protocol": "symsoil-trust/1",
+      "communityId": "synthetic-community",
+      "epoch": 1,
+      "state": "active",
+      "servicePublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "ZKfqmsLm-6TNiHdNi26egNbekusjQ6QUDs1ukkO4DZk",
+        "y": "-Emin4NJuc0XxVukugmp3JyRI06mRQD4GGJhfwhdxwQ"
+      },
+      "authorityPublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "do_5ldNP69_9pYdOGxxnsWTJzXvvICo0Ll3Jao2odmE",
+        "y": "Ejaxeds0gD7TFrkQmuPy42v6tnUQ_8EaTXbsEQL_X4Y"
+      },
+      "frameHex": "73796d736f696c2d74727573742f3100011300000100000073796e7468657469632d636f6d6d756e69747964a7ea9ac2e6fba4cd88774d8b6e9e80d6de92eb2343a4140ecd6e9243b80d99f849a29f8349b9cd17c55ba4ba09a9dc9c91234ea64500f81862617f085dc704",
+      "signature": "Zf46Lyd4mBGrky0nJL11Q8kwPrWU7kwJW7fArg3NLXaSToxki0W8ptPEwiMjN9EcpodItNoqCTR6woaizB49Ww"
+    },
+    {
+      "protocol": "symsoil-trust/1",
+      "communityId": "synthetic-community",
+      "epoch": 2,
+      "state": "active",
+      "servicePublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "tir0JJCDMekmlnYncdM8lg-y2xXm3mQui9dU3Os6lDs",
+        "y": "IsOK8vPfRCfLGFJ14CyXMYrPwScQJ5-J8C35RJnOkNo"
+      },
+      "authorityPublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "do_5ldNP69_9pYdOGxxnsWTJzXvvICo0Ll3Jao2odmE",
+        "y": "Ejaxeds0gD7TFrkQmuPy42v6tnUQ_8EaTXbsEQL_X4Y"
+      },
+      "frameHex": "73796d736f696c2d74727573742f3100011300000200000073796e7468657469632d636f6d6d756e697479b62af424908331e92696762771d33c960fb2db15e6de642e8bd754dceb3a943b22c38af2f3df4427cb185275e02c97318acfc12710279f89f02df94499ce90da",
+      "signature": "dE2Or6AdBH5k-askXxNFg7v87aUHq7-TUX0kmwpg9kbJorgZWaly5o6kemtluOjGj_V-NaNWvXbbz8EVMooxbg"
+    },
+    {
+      "protocol": "symsoil-trust/1",
+      "communityId": "synthetic-community",
+      "epoch": 3,
+      "state": "suspended",
+      "servicePublicKey": null,
+      "authorityPublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "do_5ldNP69_9pYdOGxxnsWTJzXvvICo0Ll3Jao2odmE",
+        "y": "Ejaxeds0gD7TFrkQmuPy42v6tnUQ_8EaTXbsEQL_X4Y"
+      },
+      "frameHex": "73796d736f696c2d74727573742f3100021300000300000073796e7468657469632d636f6d6d756e69747900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "signature": "EmJKnOmDzX37WG7OW-BmX1WzY4of_-XxISx93WPuXXNMS9NZnPt8d1T3SdQACicii9z37TRyTy8D5wBZCHZMYw"
+    },
+    {
+      "protocol": "symsoil-trust/1",
+      "communityId": "synthetic-community",
+      "epoch": 4,
+      "state": "active",
+      "servicePublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "tir0JJCDMekmlnYncdM8lg-y2xXm3mQui9dU3Os6lDs",
+        "y": "IsOK8vPfRCfLGFJ14CyXMYrPwScQJ5-J8C35RJnOkNo"
+      },
+      "authorityPublicKey": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "do_5ldNP69_9pYdOGxxnsWTJzXvvICo0Ll3Jao2odmE",
+        "y": "Ejaxeds0gD7TFrkQmuPy42v6tnUQ_8EaTXbsEQL_X4Y"
+      },
+      "frameHex": "73796d736f696c2d74727573742f3100011300000400000073796e7468657469632d636f6d6d756e697479b62af424908331e92696762771d33c960fb2db15e6de642e8bd754dceb3a943b22c38af2f3df4427cb185275e02c97318acfc12710279f89f02df94499ce90da",
+      "signature": "unDFaRszgrXR2SrheD49a0d-KLXujvYCurgeu4uSYMun749BNEUJMmP0geVlK2qTnTn85Ydr7T9YX6jUTAUELA"
+    }
+  ],
+  "result": {
+    "frame": {
+      "protocol": "symsoil-delivery-result/1",
+      "communityId": "synthetic-community",
+      "outcome": "accepted",
+      "replySignature": "iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg",
+      "requestId": "synthetic-request",
+      "resultId": "synthetic-result",
+      "transferId": 42
+    },
+    "canonicalFrame": "{\"communityId\":\"synthetic-community\",\"outcome\":\"accepted\",\"protocol\":\"symsoil-delivery-result/1\",\"replySignature\":\"iORbwF-hii-92h05WpsQzMVXXMhjYps7NljUyZYeOPjB39z18rrj2y1SKT8Ng4hkmQU4Xf2HiMN5NA_iMscwjg\",\"requestId\":\"synthetic-request\",\"resultId\":\"synthetic-result\",\"transferId\":42}",
+    "oldSignature": "Ezd_CuR0BQIjKIm6O1nUVvrTTt87fTux2qZT4r3J6hJ0rHsaH5wBiqLXkZaa2iy_ud2s0IXyaiqtIaVLYQT-BQ",
+    "currentSignature": "K_dm4EGcYTwD3Uhlna1dmETzTFbR3IGFWyLFeuooWHsL10GzEu-32e11fLcJ6lQcQZ-HeFG1BDR48Rifw4GxKA"
+  }
+}
